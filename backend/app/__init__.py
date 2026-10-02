@@ -1,0 +1,1 @@
+"""Alkemata Knowledge Map backend."""

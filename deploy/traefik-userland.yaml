@@ -1,0 +1,27 @@
+http:
+  routers:
+    knowledge-map-api:
+      entryPoints: [websecure]
+      rule: "Host(`map.alkemata.com`) && (PathPrefix(`/api`) || PathPrefix(`/mcp`))"
+      priority: 100
+      service: knowledge-map-api
+      tls:
+        certResolver: myresolver
+    knowledge-map-web:
+      entryPoints: [websecure]
+      rule: "Host(`map.alkemata.com`)"
+      priority: 10
+      service: knowledge-map-web
+      tls:
+        certResolver: myresolver
+  services:
+    knowledge-map-api:
+      loadBalancer:
+        servers:
+          - url: "http://172.17.0.1:18000"
+        passHostHeader: true
+    knowledge-map-web:
+      loadBalancer:
+        servers:
+          - url: "http://172.17.0.1:18080"
+        passHostHeader: true

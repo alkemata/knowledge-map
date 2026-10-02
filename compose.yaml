@@ -1,0 +1,99 @@
+name: alkemata-knowledge-map
+
+services:
+  db:
+    image: postgres:18.3-bookworm
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - knowledge_db:/var/lib/postgresql
+    networks:
+      - internal
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 8
+    logging:
+      options:
+        max-size: "10m"
+        max-file: "3"
+    deploy:
+      resources:
+        limits:
+          memory: 1g
+
+  api:
+    build:
+      context: ./backend
+    image: alkemata-knowledge-map-api:1.0.0
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      ASSET_ROOT: /data/assets
+    volumes:
+      - knowledge_assets:/data/assets
+    networks:
+      - internal
+      - traefik_web
+    depends_on:
+      db:
+        condition: service_healthy
+    labels:
+      traefik.enable: "true"
+      traefik.docker.network: traefik_web
+      traefik.http.routers.knowledge-api.entrypoints: websecure
+      traefik.http.routers.knowledge-api.rule: "Host(`map.alkemata.com`) && (PathPrefix(`/api`) || PathPrefix(`/mcp`))"
+      traefik.http.routers.knowledge-api.priority: "100"
+      traefik.http.services.knowledge-api.loadbalancer.server.port: "8000"
+    logging:
+      options:
+        max-size: "10m"
+        max-file: "3"
+    deploy:
+      resources:
+        limits:
+          memory: 1500m
+
+  web:
+    build:
+      context: ./frontend
+    image: alkemata-knowledge-map-web:1.0.0
+    restart: unless-stopped
+    networks:
+      - internal
+      - traefik_web
+    depends_on:
+      api:
+        condition: service_healthy
+    labels:
+      traefik.enable: "true"
+      traefik.docker.network: traefik_web
+      traefik.http.routers.knowledge-web.entrypoints: websecure
+      traefik.http.routers.knowledge-web.rule: "Host(`map.alkemata.com`)"
+      traefik.http.routers.knowledge-web.priority: "10"
+      traefik.http.services.knowledge-web.loadbalancer.server.port: "8080"
+    logging:
+      options:
+        max-size: "10m"
+        max-file: "3"
+    deploy:
+      resources:
+        limits:
+          memory: 256m
+
+volumes:
+  knowledge_db:
+    name: alkemata_knowledge_map_db
+  knowledge_assets:
+    name: alkemata_knowledge_map_assets
+
+networks:
+  internal:
+    name: alkemata_knowledge_map_internal
+    internal: true
+  traefik_web:
+    external: true
