@@ -84,12 +84,10 @@ def get_topic(topic_id: str, revision_id: str | None = None) -> dict[str, Any]:
         result = topic_json(db, topic)
         if revision_id and str(topic.published_revision_id) != revision_id:
             raise ValueError("Only the current published revision is publicly available")
-        relations = db.execute(select(
-            __import__("app.models", fromlist=["Relationship"]).Relationship
-        ).where(
-            ((__import__("app.models", fromlist=["Relationship"]).Relationship.source_topic_id == identifier) |
-             (__import__("app.models", fromlist=["Relationship"]).Relationship.target_topic_id == identifier)),
-            __import__("app.models", fromlist=["Relationship"]).Relationship.status == ContentStatus.published,
+        relations = db.execute(select(Relationship).where(
+            ((Relationship.source_topic_id == identifier) |
+             (Relationship.target_topic_id == identifier)),
+            Relationship.status == ContentStatus.published,
         )).scalars()
         result["relationships"] = [
             {"source_topic_id": str(r.source_topic_id), "target_topic_id": str(r.target_topic_id), "kind": r.kind, "explanation": r.explanation}

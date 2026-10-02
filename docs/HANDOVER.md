@@ -11,10 +11,12 @@ Deployment facts:
 - origin https://map.alkemata.com
 - MCP https://map.alkemata.com/mcp
 - source /srv/alkemata/knowledge-map
-- data volumes alkemata_knowledge_map_db and alkemata_knowledge_map_assets
+- active runtime: PostgreSQL 17 on 127.0.0.1:55432; API on 172.17.0.1:18000; static web on 172.17.0.1:18080
+- persistent data: /srv/alkemata/knowledge-map/runtime (excluded from Git)
 - existing Traefik via traefik_web; WordPress unchanged
 
 Known limitations:
+- Services run as the rdi account because sudo and the Docker socket are unavailable. They survive an SSH logout, but user lingering and cron are unavailable, so an administrator must install reboot supervision.
 
 - Stage B is not complete. MCP writes and OAuth are disabled. OAuth issuer,
   audience, JWKS and target-client requirements are missing.

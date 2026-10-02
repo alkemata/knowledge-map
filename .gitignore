@@ -17,3 +17,7 @@ secrets/
 runtime/
 frontend/src/api.generated.ts
 
+
+*.tsbuildinfo
+frontend/vite.config.js
+frontend/vite.config.d.ts
