@@ -4,7 +4,8 @@ Delivered: React/Leaflet CRS.Simple map; FastAPI API; PostgreSQL models and
 Alembic migration; published-revision isolation; roles, sessions and CSRF;
 versioned placements; idempotence records; vector regions/layers/features;
 relationships and branching trails; 30 original labelled demo topics; official
-MCP SDK v2 read server; Compose, health, backup, restore and smoke scripts.
+MCP SDK v2 read server plus scoped topic/placement writes; Compose, health,
+backup, restore and smoke scripts.
 
 Deployment facts:
 
@@ -18,8 +19,8 @@ Deployment facts:
 Known limitations:
 - Services run as the rdi account because sudo and the Docker socket are unavailable. They survive an SSH logout, but user lingering and cron are unavailable, so an administrator must install reboot supervision.
 
-- Stage B is not complete. MCP writes and OAuth are disabled. OAuth issuer,
-  audience, JWKS and target-client requirements are missing.
+- Stage B OAuth is not complete. MCP writes currently use scoped bearer tokens;
+  OAuth issuer, audience, JWKS and target-client requirements are missing.
 - Source uses /srv rather than root-owned /opt, matching existing Alkemata apps.
 - Terrain create APIs and placement movement exist, but full visual handles,
   background replacement, unsaved undo and every update/archive operation remain.

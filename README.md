@@ -29,9 +29,24 @@ Run pytest in backend. Run npm ci, npm run build and npm test in frontend.
 Domain points use x/y; Leaflet receives y/x. Visibility is half open:
 min_zoom <= zoom < max_zoom.
 
+The illustrated world background is frontend/public/knowledge-map-landscape.png
+and is projected over the full map bounds with Leaflet CRS.Simple.
+
+## MCP
+
 MCP exposes get_app_info, get_agent_guidance, search_topics, get_topic,
-get_region and get_trail. Only published content is returned. Authenticated MCP
-writes remain disabled until OAuth inputs and a target client are confirmed.
+get_region, get_trail and create_topic_at_position. Read tools return only
+published content.
+
+create_topic_at_position accepts a title, summary, paragraph content, map ID,
+x/y position, optional region, language and icon. It creates the topic revision
+and placement together. It requires an Authorization: Bearer token belonging to
+an agent with knowledge:contribute scope. Contributor agents create drafts for
+review. Editor agents may set publish=true to publish immediately. Use an
+idempotency_key when retrying a request.
+
+Generate scoped tokens with python -m app.manage create-agent. Tokens are shown
+once and only their SHA-256 digest is stored.
 
 ## Backup
 
