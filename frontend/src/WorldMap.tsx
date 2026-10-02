@@ -30,6 +30,7 @@ export function WorldMap({ map, selectedPlacementId, onSelect, onCamera }: Props
   const cameraRef = useRef(onCamera);
   const [dense, setDense] = useState(false);
   const [error, setError] = useState("");
+  const [position, setPosition] = useState(map.default_camera);
 
   useEffect(() => {
     selectRef.current = onSelect;
@@ -39,10 +40,11 @@ export function WorldMap({ map, selectedPlacementId, onSelect, onCamera }: Props
   useEffect(() => {
     if (!host.current) return;
 
+    const tileConfig = map.tiles;
     const instance = L.map(host.current, {
       crs: CRS.Simple,
-      minZoom: -4,
-      maxZoom: 4,
+      minZoom: tileConfig?.min_zoom ?? -4,
+      maxZoom: tileConfig?.max_zoom ?? 4,
       zoomSnap: 0.25,
       zoomDelta: 0.5,
       attributionControl: false,
@@ -51,16 +53,25 @@ export function WorldMap({ map, selectedPlacementId, onSelect, onCamera }: Props
 
     const bounds = map.bounds;
     if (bounds?.min_x != null) {
-      const imageBounds = L.latLngBounds(
+      const worldBounds = L.latLngBounds(
         worldToLeaflet({ x: bounds.min_x, y: bounds.min_y }),
         worldToLeaflet({ x: bounds.max_x, y: bounds.max_y }),
       );
-      L.imageOverlay("/knowledge-map-landscape.png", imageBounds, {
-        opacity: 0.72,
-        interactive: false,
-        className: "world-background",
-      }).addTo(instance);
-      instance.fitBounds(imageBounds);
+      if (tileConfig) {
+        L.tileLayer(tileConfig.url_template, {
+          tileSize: tileConfig.tile_size,
+          minZoom: tileConfig.min_zoom,
+          maxNativeZoom: tileConfig.max_native_zoom,
+          maxZoom: tileConfig.max_zoom,
+          bounds: worldBounds,
+          noWrap: true,
+          keepBuffer: 2,
+          updateWhenIdle: true,
+          className: "world-background-tile",
+        }).addTo(instance);
+      }
+      instance.setMaxBounds(worldBounds.pad(0.08));
+      instance.fitBounds(worldBounds);
     } else {
       instance.setView(worldToLeaflet(map.default_camera), map.default_camera.z);
     }
@@ -72,27 +83,29 @@ export function WorldMap({ map, selectedPlacementId, onSelect, onCamera }: Props
       if (!group) return;
       group.clearLayers();
 
-      for (const region of data.regions) {
-        const area = region.bounds;
-        L.rectangle(
-          [
-            worldToLeaflet({ x: area.min_x, y: area.min_y }),
-            worldToLeaflet({ x: area.max_x, y: area.max_y }),
-          ],
-          {
-            color: region.style.accent ?? "#2f5c50",
-            fillColor: region.style.fill ?? "#e8efe6",
-            fillOpacity: 0.12,
-            opacity: 0.7,
-            weight: 2,
-          },
-        )
-          .bindTooltip(region.title, {
-            permanent: instance.getZoom() < -2,
-            direction: "center",
-            className: "region-label",
-          })
-          .addTo(group);
+      if (instance.getZoom() < 1) {
+        for (const region of data.regions) {
+          const area = region.bounds;
+          L.rectangle(
+            [
+              worldToLeaflet({ x: area.min_x, y: area.min_y }),
+              worldToLeaflet({ x: area.max_x, y: area.max_y }),
+            ],
+            {
+              color: region.style.accent ?? "#2f5c50",
+              fillColor: region.style.fill ?? "#e8efe6",
+              fillOpacity: 0.08,
+              opacity: 0.55,
+              weight: 2,
+            },
+          )
+            .bindTooltip(region.title, {
+              permanent: instance.getZoom() < -2,
+              direction: "center",
+              className: "region-label",
+            })
+            .addTo(group);
+        }
       }
 
       for (const feature of data.features) {
@@ -101,7 +114,7 @@ export function WorldMap({ map, selectedPlacementId, onSelect, onCamera }: Props
           L.polygon(pointsToLeaflet(points), {
             color: feature.style.stroke ?? "#365314",
             fillColor: feature.style.fill ?? "#d9ead3",
-            fillOpacity: 0.2,
+            fillOpacity: 0.12,
             weight: feature.style.weight ?? 2,
             interactive: false,
           }).addTo(group);
@@ -110,7 +123,7 @@ export function WorldMap({ map, selectedPlacementId, onSelect, onCamera }: Props
           L.polyline(pointsToLeaflet(points), {
             color: feature.style.stroke ?? "#854d0e",
             weight: feature.style.weight ?? 5,
-            opacity: 0.72,
+            opacity: 0.55,
             interactive: false,
           }).addTo(group);
         }
@@ -161,7 +174,9 @@ export function WorldMap({ map, selectedPlacementId, onSelect, onCamera }: Props
         setDense(data.has_more);
         setError("");
         const center = instance.getCenter();
-        cameraRef.current({ x: center.lng, y: center.lat, z: zoom });
+        const camera = { x: center.lng, y: center.lat, z: zoom };
+        setPosition(camera);
+        cameraRef.current(camera);
       } catch (caught) {
         if ((caught as Error).name !== "AbortError") {
           setError((caught as Error).message);
@@ -181,13 +196,15 @@ export function WorldMap({ map, selectedPlacementId, onSelect, onCamera }: Props
   }, [map.id, selectedPlacementId]);
 
   return (
-    <div className="map-wrap" aria-label="Interactive knowledge map">
+    <div className="map-wrap" aria-label="Interactive tiled knowledge map">
       <div ref={host} className="world-map" />
       <aside className="legend" aria-label="Map legend">
         <strong>Legend</strong>
         <span>◆ topic landmark</span>
-        <span>Brown path: learning route</span>
-        <span>Illustrated terrain is contextual unless stated otherwise.</span>
+        <span>Topics appear at their configured zoom level</span>
+        <span>
+          x {Math.round(position.x)} · y {Math.round(position.y)} · zoom {position.z.toFixed(2)}
+        </span>
       </aside>
       {dense && <p className="map-notice">This area is dense. Zoom in to reveal all landmarks.</p>}
       {error && <p className="map-error" role="alert">{error}</p>}

@@ -88,6 +88,15 @@ def validate_placement_context(db: Session, data: PlacementInput) -> Region | No
     knowledge_map = db.get(KnowledgeMap, data.map_id)
     if knowledge_map is None:
         raise HTTPException(422, detail={"code": "invalid_map", "message": "Map does not exist"})
+    bounds = knowledge_map.world_bounds
+    if bounds and not (
+        bounds["min_x"] <= data.x <= bounds["max_x"]
+        and bounds["min_y"] <= data.y <= bounds["max_y"]
+    ):
+        raise HTTPException(422, detail={
+            "code": "outside_map",
+            "message": "Position is outside the map world bounds",
+        })
     if data.region_id:
         region = db.get(Region, data.region_id)
         if region is None or region.map_id != data.map_id:

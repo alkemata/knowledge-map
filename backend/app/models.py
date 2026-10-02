@@ -77,6 +77,8 @@ class KnowledgeMap(Base):
     description: Mapped[str] = mapped_column(Text, default="")
     coordinate_version: Mapped[int] = mapped_column(Integer, default=1)
     default_camera: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict)
+    world_bounds: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict)
+    tile_config: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict)
     version: Mapped[int] = mapped_column(Integer, default=1)
 
 

@@ -84,9 +84,10 @@ def ready(db: Session = Depends(get_db)) -> dict[str, Any]:
 def capabilities() -> dict[str, Any]:
     return {
         "application": "Alkemata Knowledge Map", "version": "1.0.0",
-        "stage": "A", "content_schema_versions": [1], "coordinate_version": 1,
+        "stage": "A", "content_schema_versions": [1], "coordinate_version": 2,
         "world_coordinates": {"x": "east/right", "y": "north/up"},
-        "semantic_zoom": {"overview": [-4, -2], "district": [-2, 0], "detail": [0, 5]},
+        "tile_pyramid": {"format": "webp", "tile_size": 256, "native_zoom": [-4, 0]},
+        "semantic_zoom": {"overview": [-4, -2], "district": [-2, 0], "detail": [0, 4]},
         "mcp": {"enabled": settings.mcp_enabled, "url": f"{settings.public_origin}/mcp", "writes": settings.mcp_write_enabled},
         "limits": {"page_max": 200, "upload_bytes": settings.max_upload_bytes, "geometry_vertices": 500},
         "publishing": "Drafts require editor review; public reads never include drafts.",
@@ -107,14 +108,17 @@ def get_map(map_id: uuid.UUID, db: Session = Depends(get_db)) -> dict[str, Any]:
     item = db.get(KnowledgeMap, map_id)
     if not item:
         fail(404, "map_not_found", "Map not found")
-    bounds = db.execute(select(
-        func.min(Region.min_x), func.min(Region.min_y), func.max(Region.max_x), func.max(Region.max_y)
-    ).where(Region.map_id == map_id, Region.status == ContentStatus.published)).one()
+    bounds = item.world_bounds
+    if not bounds:
+        legacy = db.execute(select(
+            func.min(Region.min_x), func.min(Region.min_y),
+            func.max(Region.max_x), func.max(Region.max_y)
+        ).where(Region.map_id == map_id, Region.status == ContentStatus.published)).one()
+        bounds = {"min_x": legacy[0], "min_y": legacy[1], "max_x": legacy[2], "max_y": legacy[3]}
     return {
         "id": str(item.id), "title": item.title, "description": item.description,
         "coordinate_version": item.coordinate_version, "default_camera": item.default_camera,
-        "bounds": {"min_x": bounds[0], "min_y": bounds[1], "max_x": bounds[2], "max_y": bounds[3]},
-        "version": item.version,
+        "bounds": bounds, "tiles": item.tile_config, "version": item.version,
     }
 
 

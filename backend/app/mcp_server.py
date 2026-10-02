@@ -232,6 +232,9 @@ def create_topic_at_position(
     region_id: str | None = None,
     language: str = "en",
     icon: str = "building",
+    min_zoom: float = -4,
+    max_zoom: float = 5,
+    label_priority: int = 0,
     publish: bool = False,
     idempotency_key: str | None = None,
 ) -> dict[str, Any]:
@@ -257,6 +260,9 @@ def create_topic_at_position(
         "y": y,
         "language": language,
         "icon": icon,
+        "min_zoom": min_zoom,
+        "max_zoom": max_zoom,
+        "label_priority": label_priority,
         "publish": publish,
     }
     request_hash = hashlib.sha256(
@@ -298,6 +304,9 @@ def create_topic_at_position(
                 x=x,
                 y=y,
                 icon=icon,
+                min_zoom=min_zoom,
+                max_zoom=max_zoom,
+                label_priority=label_priority,
             ),
         )
         topic = create_topic(db, topic_input, actor, publish=may_publish)

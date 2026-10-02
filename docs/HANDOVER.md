@@ -12,6 +12,7 @@ Deployment facts:
 - origin https://map.alkemata.com
 - MCP https://map.alkemata.com/mcp
 - source /srv/alkemata/knowledge-map
+- tiled world: 6144 x 4096 coordinates, 512 WebP tiles, native zoom -4 through 0
 - active runtime: PostgreSQL 17 on 127.0.0.1:55432; API on 172.17.0.1:18000; static web on 172.17.0.1:18080
 - persistent data: /srv/alkemata/knowledge-map/runtime (excluded from Git)
 - existing Traefik via traefik_web; WordPress unchanged
@@ -28,6 +29,7 @@ Known limitations:
   cursor pagination, database full-text search, shared rate limiting and portable
   import/export preview remain.
 - The 1,000-placement benchmark and full accessibility audit remain.
+- PostGIS/vector tiles remain the next step for millions of spatial features; topic placements already use bounded viewport queries.
 - Backup artifacts are local until an encrypted off-server target is supplied.
 - The shared legacy Traefik 2.2 installation was preserved, not upgraded.
 

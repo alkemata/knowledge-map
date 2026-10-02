@@ -62,12 +62,21 @@ export type Viewport = {
   has_more: boolean;
 };
 
+export type TileConfig = {
+  url_template: string;
+  tile_size: number;
+  min_zoom: number;
+  max_native_zoom: number;
+  max_zoom: number;
+};
+
 export type KnowledgeMap = {
   id: string;
   title: string;
   description: string;
   default_camera: { x: number; y: number; z: number };
   bounds?: { min_x: number; min_y: number; max_x: number; max_y: number };
+  tiles?: TileConfig;
   version: number;
 };
 
@@ -76,6 +85,16 @@ export type Trail = {
   title: string;
   summary: string;
   start_step_id: string;
-  steps: { id: string; topic_id: string; preferred_placement_id: string | null; note: string }[];
-  edges: { from_step_id: string; to_step_id: string; label: string; is_default: boolean }[];
+  steps: {
+    id: string;
+    topic_id: string;
+    preferred_placement_id: string | null;
+    note: string;
+  }[];
+  edges: {
+    from_step_id: string;
+    to_step_id: string;
+    label: string;
+    is_default: boolean;
+  }[];
 };

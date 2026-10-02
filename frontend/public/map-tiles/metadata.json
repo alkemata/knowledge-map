@@ -1,0 +1,57 @@
+{
+  "schema_version": 1,
+  "tile_size": 256,
+  "format": "webp",
+  "url_template": "/map-tiles/{z}/{x}/{y}.webp",
+  "world_bounds": {
+    "min_x": 0,
+    "min_y": 0,
+    "max_x": 6144,
+    "max_y": 4096
+  },
+  "min_zoom": -4,
+  "max_native_zoom": 0,
+  "max_zoom": 4,
+  "levels": [
+    {
+      "zoom": -4,
+      "width": 384,
+      "height": 256,
+      "columns": 2,
+      "rows": 1,
+      "tiles": 2
+    },
+    {
+      "zoom": -3,
+      "width": 768,
+      "height": 512,
+      "columns": 3,
+      "rows": 2,
+      "tiles": 6
+    },
+    {
+      "zoom": -2,
+      "width": 1536,
+      "height": 1024,
+      "columns": 6,
+      "rows": 4,
+      "tiles": 24
+    },
+    {
+      "zoom": -1,
+      "width": 3072,
+      "height": 2048,
+      "columns": 12,
+      "rows": 8,
+      "tiles": 96
+    },
+    {
+      "zoom": 0,
+      "width": 6144,
+      "height": 4096,
+      "columns": 24,
+      "rows": 16,
+      "tiles": 384
+    }
+  ]
+}

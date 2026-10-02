@@ -63,7 +63,12 @@ def seed_demo() -> None:
         knowledge_map = KnowledgeMap(
             id=uuid.uuid5(NAMESPACE, "world"), title="Alkemata Knowledge World",
             description="An illustrated landscape for exploring connected ideas.",
-            default_camera={"x": 2048, "y": 2500, "z": -3}, coordinate_version=1,
+            default_camera={"x": 3072, "y": 2048, "z": -3}, coordinate_version=2,
+            world_bounds={"min_x": 0, "min_y": 0, "max_x": 6144, "max_y": 4096},
+            tile_config={
+                "url_template": "/map-tiles/{z}/{x}/{y}.webp", "tile_size": 256,
+                "min_zoom": -4, "max_native_zoom": 0, "max_zoom": 4,
+            },
         )
         db.add_all([demo_user, knowledge_map])
         db.flush()

@@ -10,6 +10,9 @@ async def test_real_mcp_client_lists_and_calls_tools():
         tools = await client.list_tools()
         names = {tool.name for tool in tools.tools}
         assert {"get_app_info", "get_agent_guidance", "search_topics", "get_topic", "get_region", "get_trail", "create_topic_at_position"} <= names
+        create_tool = next(tool for tool in tools.tools if tool.name == "create_topic_at_position")
+        properties = create_tool.input_schema["properties"]
+        assert {"x", "y", "min_zoom", "max_zoom", "label_priority"} <= properties.keys()
         result = await client.call_tool("get_app_info", {})
         assert not result.is_error
         assert result.structured_content["name"] == "Alkemata Knowledge Map"
