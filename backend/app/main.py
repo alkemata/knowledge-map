@@ -4,7 +4,7 @@ import time
 import uuid
 from collections.abc import AsyncIterator
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -12,7 +12,9 @@ from starlette.routing import Mount
 
 from .api import router
 from .config import get_settings
+from .database import new_session
 from .mcp_server import mcp, mcp_app
+from .oidc import mcp_challenge, valid_legacy_mcp_token, verify_mcp_access_token
 
 settings = get_settings()
 logging.basicConfig(level=settings.log_level, format="%(asctime)s %(levelname)s %(name)s %(message)s")
@@ -48,6 +50,17 @@ async def request_context(request: Request, call_next):
     request_id = request.headers.get("x-request-id") or str(uuid.uuid4())
     request.state.request_id = request_id
     started = time.perf_counter()
+    if settings.oidc_mcp_enforce and request.url.path.startswith("/mcp") and request.method != "OPTIONS":
+        authorization = request.headers.get("authorization", "")
+        if not authorization.lower().startswith("bearer "):
+            return mcp_challenge()
+        token = authorization[7:].strip()
+        try:
+            verify_mcp_access_token(token)
+        except (HTTPException, RuntimeError):
+            with new_session() as db:
+                if not valid_legacy_mcp_token(token, db):
+                    return mcp_challenge()
     response = await call_next(request)
     response.headers["X-Request-Id"] = request_id
     response.headers["X-Content-Type-Options"] = "nosniff"
@@ -84,5 +97,17 @@ async def unhandled(request: Request, exc: Exception):
 
 
 app.include_router(router)
+
+
+@app.get("/.well-known/oauth-protected-resource/mcp")
+def mcp_resource_metadata() -> dict:
+    return {
+        "resource": f"{settings.public_origin}/mcp",
+        "authorization_servers": [settings.oidc_issuer.rstrip("/")],
+        "scopes_supported": ["knowledge:read", "knowledge:contribute"],
+        "bearer_methods_supported": ["header"],
+    }
+
+
 app.routes.append(Mount("/mcp", app=mcp_app))
 

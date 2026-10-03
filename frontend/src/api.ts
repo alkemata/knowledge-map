@@ -48,3 +48,20 @@ export function getTrails(signal?: AbortSignal): Promise<{ id: string; title: st
 export function getTrail(id: string, signal?: AbortSignal): Promise<Trail> {
   return request(`/api/v1/trails/${id}`, signal);
 }
+
+export type Identity =
+  | { authenticated: false }
+  | { authenticated: true; id: string; display_name: string; role: string; csrf_token: string | null };
+
+export function getIdentity(signal?: AbortSignal): Promise<Identity> {
+  return request("/api/v1/auth/me", signal);
+}
+
+export async function logout(csrfToken: string): Promise<void> {
+  const response = await fetch("/api/v1/auth/logout", {
+    method: "POST",
+    credentials: "same-origin",
+    headers: { "X-CSRF-Token": csrfToken },
+  });
+  if (!response.ok) throw new Error("Sign out failed");
+}

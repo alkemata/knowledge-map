@@ -1,0 +1,10 @@
+{
+  "realm": "alkemata",
+  "enabled": true,
+  "displayName": "Alkemata",
+  "loginWithEmailAllowed": true,
+  "duplicateEmailsAllowed": false,
+  "verifyEmail": true,
+  "resetPasswordAllowed": true,
+  "registrationAllowed": false
+}

@@ -21,6 +21,11 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
     session_ttl_hours: int = 24
     max_upload_bytes: int = 10 * 1024 * 1024
+    oidc_issuer: str = ""
+    oidc_browser_client_id: str = ""
+    oidc_browser_client_secret: str = ""
+    oidc_mcp_audience: str = ""
+    oidc_mcp_enforce: bool = False
 
     @field_validator("public_origin")
     @classmethod

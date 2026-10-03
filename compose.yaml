@@ -46,7 +46,7 @@ services:
       traefik.enable: "true"
       traefik.docker.network: traefik_web
       traefik.http.routers.knowledge-api.entrypoints: websecure
-      traefik.http.routers.knowledge-api.rule: "Host(`map.alkemata.com`) && (PathPrefix(`/api`) || PathPrefix(`/mcp`))"
+      traefik.http.routers.knowledge-api.rule: "Host(`map.alkemata.com`) && (PathPrefix(`/api`) || PathPrefix(`/mcp`) || PathPrefix(`/.well-known/oauth-protected-resource`))"
       traefik.http.routers.knowledge-api.priority: "100"
       traefik.http.services.knowledge-api.loadbalancer.server.port: "8000"
     logging:

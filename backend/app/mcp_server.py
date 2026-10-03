@@ -28,6 +28,7 @@ from .models import (
     TrailStep,
     User,
 )
+from .oidc import link_user, verify_mcp_access_token
 from .schemas import ContentBlock, ContentEnvelope, PlacementInput, TopicCreate
 from .services import (
     create_topic,
@@ -57,6 +58,15 @@ def _write_actor(db: Session, ctx: Context) -> User:
     if not authorization.lower().startswith("bearer "):
         raise PermissionError("A bearer token is required for MCP writes")
     raw_token = authorization[7:].strip()
+    if raw_token.count(".") == 2:
+        claims = verify_mcp_access_token(raw_token)
+        scopes = set(str(claims.get("scope", "")).split())
+        if "knowledge:contribute" not in scopes:
+            raise PermissionError("The Keycloak token lacks knowledge:contribute")
+        actor = link_user(db, claims)
+        if actor.role == Role.reader:
+            raise PermissionError("The user does not have a contributor role")
+        return actor
     now = datetime.now(timezone.utc)
     credential = db.scalar(
         select(AgentCredential).where(
@@ -88,7 +98,7 @@ def get_app_info() -> dict[str, Any]:
         "content_schema_versions": [1],
         "coordinate_version": 1,
         "writes_enabled": settings.mcp_write_enabled,
-        "write_authentication": "Bearer token with knowledge:contribute scope",
+        "write_authentication": "Keycloak bearer token with knowledge:contribute scope",
     }
 
 

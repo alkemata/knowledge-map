@@ -8,6 +8,7 @@ from typing import Any
 from xml.etree import ElementTree
 
 from fastapi import APIRouter, Depends, File, Header, HTTPException, Request, Response, UploadFile
+from fastapi.responses import RedirectResponse
 from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session
 
@@ -19,6 +20,7 @@ from .models import (
     IdempotencyRecord, KnowledgeMap, Layer, Placement, Region, Relationship, Role,
     TerrainFeature, Topic, TopicRevision, Trail, TrailEdge, TrailStep, User,
 )
+from .oidc import finish_login, start_login
 from .schemas import (
     LoginInput, PlacementInput, PlacementPatch, RegionCreate, RelationshipCreate,
     TerrainFeatureInput, TopicCreate, TopicRevisionCreate, TrailCreate,
@@ -220,6 +222,16 @@ def me(request: Request, user: User | None = Depends(optional_user)) -> dict[str
         "role": user.role.value, "identity_type": user.identity_type.value,
         "csrf_token": session.csrf_token if session else None,
     }
+
+
+@router.get("/auth/oidc/start", response_class=RedirectResponse)
+def oidc_start(next: str = "/") -> RedirectResponse:
+    return start_login(next)
+
+
+@router.get("/auth/oidc/callback", response_class=RedirectResponse)
+def oidc_callback(request: Request, code: str, state: str, db: Session = Depends(get_db)) -> RedirectResponse:
+    return finish_login(request, code, state, db)
 
 
 @router.post("/topics", status_code=201)
