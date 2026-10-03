@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import L, { CRS, LayerGroup, Map as LeafletMap } from "leaflet";
 import "leaflet/dist/leaflet.css";
 import { getViewport } from "./api";
-import { pointsToLeaflet, worldToLeaflet } from "./coordinates";
+import { worldToLeaflet } from "./coordinates";
 import type { KnowledgeMap, Placement, Viewport } from "./types";
 
 type Props = {
@@ -12,15 +12,6 @@ type Props = {
   onCamera: (camera: { x: number; y: number; z: number }) => void;
 };
 
-const glyphs: Record<string, string> = {
-  building: "◆",
-  library: "▤",
-  tower: "♜",
-  workshop: "⚒",
-  observatory: "◉",
-  bridge: "⌁",
-};
-
 export function WorldMap({ map, selectedPlacementId, onSelect, onCamera }: Props) {
   const host = useRef<HTMLDivElement>(null);
   const leaflet = useRef<LeafletMap | null>(null);
@@ -28,14 +19,21 @@ export function WorldMap({ map, selectedPlacementId, onSelect, onCamera }: Props
   const abort = useRef<AbortController | null>(null);
   const selectRef = useRef(onSelect);
   const cameraRef = useRef(onCamera);
+  const selectedRef = useRef(selectedPlacementId);
+  const lastViewport = useRef<Viewport | null>(null);
+  const renderRef = useRef<((data: Viewport) => void) | null>(null);
   const [dense, setDense] = useState(false);
   const [error, setError] = useState("");
-  const [position, setPosition] = useState(map.default_camera);
 
   useEffect(() => {
     selectRef.current = onSelect;
     cameraRef.current = onCamera;
   }, [onSelect, onCamera]);
+
+  useEffect(() => {
+    selectedRef.current = selectedPlacementId;
+    if (lastViewport.current) renderRef.current?.(lastViewport.current);
+  }, [selectedPlacementId]);
 
   useEffect(() => {
     if (!host.current) return;
@@ -57,19 +55,6 @@ export function WorldMap({ map, selectedPlacementId, onSelect, onCamera }: Props
         worldToLeaflet({ x: bounds.min_x, y: bounds.min_y }),
         worldToLeaflet({ x: bounds.max_x, y: bounds.max_y }),
       );
-      if (tileConfig) {
-        L.tileLayer(tileConfig.url_template, {
-          tileSize: tileConfig.tile_size,
-          minZoom: tileConfig.min_zoom,
-          maxNativeZoom: tileConfig.max_native_zoom,
-          maxZoom: tileConfig.max_zoom,
-          bounds: worldBounds,
-          noWrap: true,
-          keepBuffer: 2,
-          updateWhenIdle: true,
-          className: "world-background-tile",
-        }).addTo(instance);
-      }
       instance.setMaxBounds(worldBounds.pad(0.08));
       instance.fitBounds(worldBounds);
     } else {
@@ -83,64 +68,16 @@ export function WorldMap({ map, selectedPlacementId, onSelect, onCamera }: Props
       if (!group) return;
       group.clearLayers();
 
-      if (instance.getZoom() < 1) {
-        for (const region of data.regions) {
-          const area = region.bounds;
-          L.rectangle(
-            [
-              worldToLeaflet({ x: area.min_x, y: area.min_y }),
-              worldToLeaflet({ x: area.max_x, y: area.max_y }),
-            ],
-            {
-              color: region.style.accent ?? "#2f5c50",
-              fillColor: region.style.fill ?? "#e8efe6",
-              fillOpacity: 0.08,
-              opacity: 0.55,
-              weight: 2,
-            },
-          )
-            .bindTooltip(region.title, {
-              permanent: instance.getZoom() < -2,
-              direction: "center",
-              className: "region-label",
-            })
-            .addTo(group);
-        }
-      }
-
-      for (const feature of data.features) {
-        const points = feature.geometry.points ?? [];
-        if (feature.feature_type === "polygon" && points.length > 2) {
-          L.polygon(pointsToLeaflet(points), {
-            color: feature.style.stroke ?? "#365314",
-            fillColor: feature.style.fill ?? "#d9ead3",
-            fillOpacity: 0.12,
-            weight: feature.style.weight ?? 2,
-            interactive: false,
-          }).addTo(group);
-        }
-        if (feature.feature_type === "polyline" && points.length > 1) {
-          L.polyline(pointsToLeaflet(points), {
-            color: feature.style.stroke ?? "#854d0e",
-            weight: feature.style.weight ?? 5,
-            opacity: 0.55,
-            interactive: false,
-          }).addTo(group);
-        }
-      }
-
       for (const placement of data.placements) {
         if (!placement.topic) continue;
-        const selected = placement.id === selectedPlacementId;
-        const glyph = glyphs[placement.icon] ?? "◆";
+        const selected = placement.id === selectedRef.current;
+        const regionIndex = data.regions.findIndex((region) => region.id === placement.region_id);
         const marker = L.marker(worldToLeaflet(placement), {
           icon: L.divIcon({
-            className: `topic-marker${selected ? " selected" : ""}`,
-            html:
-              `<span aria-hidden="true" class="marker-glyph">${glyph}</span>` +
-              `<span class="marker-label">${escapeHtml(placement.topic.title)}</span>`,
-            iconSize: [148, 46],
-            iconAnchor: [24, 23],
+            className: `content-node tone-${Math.max(0, regionIndex) % 3}${selected ? " selected" : ""}`,
+            html: `<span class="content-node-title">${escapeHtml(placement.topic.title)}</span>`,
+            iconSize: [112, 112],
+            iconAnchor: [56, 56],
           }),
           keyboard: true,
           title: placement.topic.title,
@@ -151,6 +88,7 @@ export function WorldMap({ map, selectedPlacementId, onSelect, onCamera }: Props
         marker.addTo(group);
       }
     };
+    renderRef.current = render;
 
     const refresh = async () => {
       const visible = instance.getBounds();
@@ -170,12 +108,12 @@ export function WorldMap({ map, selectedPlacementId, onSelect, onCamera }: Props
           zoom,
           controller.signal,
         );
+        lastViewport.current = data;
         render(data);
         setDense(data.has_more);
         setError("");
         const center = instance.getCenter();
         const camera = { x: center.lng, y: center.lat, z: zoom };
-        setPosition(camera);
         cameraRef.current(camera);
       } catch (caught) {
         if ((caught as Error).name !== "AbortError") {
@@ -192,21 +130,15 @@ export function WorldMap({ map, selectedPlacementId, onSelect, onCamera }: Props
       instance.remove();
       leaflet.current = null;
       layers.current = null;
+      lastViewport.current = null;
+      renderRef.current = null;
     };
-  }, [map.id, selectedPlacementId]);
+  }, [map.id]);
 
   return (
-    <div className="map-wrap" aria-label="Interactive tiled knowledge map">
+    <div className="map-wrap" aria-label="Interactive knowledge map">
       <div ref={host} className="world-map" />
-      <aside className="legend" aria-label="Map legend">
-        <strong>Legend</strong>
-        <span>◆ topic landmark</span>
-        <span>Topics appear at their configured zoom level</span>
-        <span>
-          x {Math.round(position.x)} · y {Math.round(position.y)} · zoom {position.z.toFixed(2)}
-        </span>
-      </aside>
-      {dense && <p className="map-notice">This area is dense. Zoom in to reveal all landmarks.</p>}
+      {dense && <p className="map-notice">Zoom in to reveal more notes.</p>}
       {error && <p className="map-error" role="alert">{error}</p>}
     </div>
   );
