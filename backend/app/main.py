@@ -56,7 +56,10 @@ async def request_context(request: Request, call_next):
             return mcp_challenge()
         token = authorization[7:].strip()
         try:
-            verify_mcp_access_token(token)
+            claims = verify_mcp_access_token(token)
+            scopes = set(str(claims.get("scope", "")).split())
+            if not scopes.intersection({"knowledge:read", "knowledge:contribute"}):
+                return mcp_challenge()
         except (HTTPException, RuntimeError):
             with new_session() as db:
                 if not valid_legacy_mcp_token(token, db):
@@ -99,6 +102,7 @@ async def unhandled(request: Request, exc: Exception):
 app.include_router(router)
 
 
+@app.get("/.well-known/oauth-protected-resource")
 @app.get("/.well-known/oauth-protected-resource/mcp")
 def mcp_resource_metadata() -> dict:
     return {

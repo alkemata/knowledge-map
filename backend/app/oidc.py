@@ -192,6 +192,7 @@ def valid_legacy_mcp_token(token: str, db: Session) -> bool:
         credential
         and credential.user.disabled_at is None
         and (credential.expires_at is None or credential.expires_at > datetime.now(timezone.utc))
+        and bool(set(credential.scopes).intersection({"knowledge:read", "knowledge:contribute"}))
     )
 
 
