@@ -55,6 +55,19 @@ export function WorldMap({ map, selectedPlacementId, onSelect, onCamera }: Props
         worldToLeaflet({ x: bounds.min_x, y: bounds.min_y }),
         worldToLeaflet({ x: bounds.max_x, y: bounds.max_y }),
       );
+      if (tileConfig) {
+        L.tileLayer(tileConfig.url_template, {
+          tileSize: tileConfig.tile_size,
+          minZoom: tileConfig.min_zoom,
+          maxNativeZoom: tileConfig.max_native_zoom,
+          maxZoom: tileConfig.max_zoom,
+          bounds: worldBounds,
+          noWrap: true,
+          keepBuffer: 2,
+          updateWhenIdle: true,
+          className: "world-background-tile",
+        }).addTo(instance);
+      }
       instance.setMaxBounds(worldBounds.pad(0.08));
       instance.fitBounds(worldBounds);
     } else {
