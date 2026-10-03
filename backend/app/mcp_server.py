@@ -39,6 +39,12 @@ from .services import (
 )
 
 settings = get_settings()
+READ_SECURITY = {"securitySchemes": (
+    [{"type": "oauth2", "scopes": ["knowledge:read"]}]
+    if settings.oidc_mcp_enforce else
+    [{"type": "noauth"}, {"type": "oauth2", "scopes": ["knowledge:read"]}]
+)}
+WRITE_SECURITY = {"securitySchemes": [{"type": "oauth2", "scopes": ["knowledge:contribute"]}]}
 mcp = MCPServer(
     "Alkemata Knowledge Map",
     version="1.1.0",
@@ -86,7 +92,7 @@ def _write_actor(db: Session, ctx: Context) -> User:
     return actor
 
 
-@mcp.tool()
+@mcp.tool(meta=READ_SECURITY)
 def get_app_info() -> dict[str, Any]:
     """Return canonical origin, protocol endpoint, schemas and public capabilities."""
     return {
@@ -102,7 +108,7 @@ def get_app_info() -> dict[str, Any]:
     }
 
 
-@mcp.tool()
+@mcp.tool(meta=READ_SECURITY)
 def get_agent_guidance() -> dict[str, Any]:
     """Return the authoritative coordinate, contribution and publication rules."""
     return {
@@ -132,7 +138,7 @@ def get_agent_guidance() -> dict[str, Any]:
     }
 
 
-@mcp.tool()
+@mcp.tool(meta=READ_SECURITY)
 def search_topics(query: str = "", language: str | None = None, limit: int = 20) -> dict[str, Any]:
     """Search published topic titles and summaries. Responses are bounded to 100."""
     with new_session() as db:
@@ -140,7 +146,7 @@ def search_topics(query: str = "", language: str | None = None, limit: int = 20)
         return {"items": items, "next_cursor": None}
 
 
-@mcp.tool()
+@mcp.tool(meta=READ_SECURITY)
 def get_topic(topic_id: str, revision_id: str | None = None) -> dict[str, Any]:
     """Return complete permitted blocks, published sources and relationships for one topic."""
     with new_session() as db:
@@ -172,7 +178,7 @@ def get_topic(topic_id: str, revision_id: str | None = None) -> dict[str, Any]:
         return result
 
 
-@mcp.tool()
+@mcp.tool(meta=READ_SECURITY)
 def get_region(
     map_id: str,
     min_x: float,
@@ -191,7 +197,7 @@ def get_region(
         return result
 
 
-@mcp.tool()
+@mcp.tool(meta=READ_SECURITY)
 def get_trail(trail_id: str) -> dict[str, Any]:
     """Return a published learning trail with steps and branches."""
     with new_session() as db:
@@ -230,7 +236,7 @@ def get_trail(trail_id: str) -> dict[str, Any]:
         }
 
 
-@mcp.tool()
+@mcp.tool(meta=WRITE_SECURITY)
 def create_topic_at_position(
     title: str,
     summary: str,
