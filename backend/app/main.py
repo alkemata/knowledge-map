@@ -46,42 +46,63 @@ app.add_middleware(
 )
 
 
+def mcp_tool_challenge(request_id: int | str | None) -> JSONResponse:
+    metadata = settings.public_origin + "/.well-known/oauth-protected-resource/mcp"
+    challenge = (
+        f'Bearer resource_metadata="{metadata}", error="insufficient_scope", '
+        'error_description="Sign in with a contributor account to create a map topic", '
+        'scope="knowledge:contribute"'
+    )
+    return JSONResponse({
+        "jsonrpc": "2.0",
+        "id": request_id,
+        "result": {
+            "content": [{"type": "text", "text": "Authentication required to create a map topic."}],
+            "_meta": {"mcp/www_authenticate": [challenge]},
+            "isError": True,
+        },
+    })
+
+
 @app.middleware("http")
 async def request_context(request: Request, call_next):
     request_id = request.headers.get("x-request-id") or str(uuid.uuid4())
     request.state.request_id = request_id
     started = time.perf_counter()
-    protected_mcp_call = False
+    protected_message = None
     if request.url.path.startswith("/mcp") and request.method == "POST":
         try:
             message = json.loads(await request.body())
             messages = message if isinstance(message, list) else [message]
-            protected_mcp_call = any(
+            protected_message = next((
+                item for item in messages if
                 isinstance(item, dict)
                 and item.get("method") == "tools/call"
                 and isinstance(item.get("params"), dict)
                 and item["params"].get("name") == "create_topic_at_position"
-                for item in messages
-            )
+            ), None)
         except (json.JSONDecodeError, UnicodeDecodeError):
             pass
+    protected_mcp_call = protected_message is not None
     if (settings.oidc_mcp_enforce or protected_mcp_call) and request.url.path.startswith("/mcp") and request.method != "OPTIONS":
         authorization = request.headers.get("authorization", "")
         if not authorization.lower().startswith("bearer "):
-            return mcp_challenge("knowledge:contribute" if protected_mcp_call else "knowledge:read")
+            return (mcp_tool_challenge(protected_message.get("id")) if protected_mcp_call
+                    else mcp_challenge("knowledge:read"))
         token = authorization[7:].strip()
         required_scope = "knowledge:contribute" if protected_mcp_call else None
         try:
             claims = verify_mcp_access_token(token)
             scopes = set(str(claims.get("scope", "")).split())
             if required_scope and required_scope not in scopes:
-                return mcp_challenge(required_scope)
+                return mcp_tool_challenge(protected_message.get("id"))
             if not scopes.intersection({"knowledge:read", "knowledge:contribute"}):
                 return mcp_challenge("knowledge:read")
         except (HTTPException, RuntimeError):
             with new_session() as db:
                 if not valid_legacy_mcp_token(token, db, required_scope):
-                    return mcp_challenge(required_scope or "knowledge:read")
+                    return (mcp_tool_challenge(protected_message.get("id")) if protected_mcp_call
+                            else mcp_challenge("knowledge:read"))
     response = await call_next(request)
     response.headers["X-Request-Id"] = request_id
     response.headers["X-Content-Type-Options"] = "nosniff"
