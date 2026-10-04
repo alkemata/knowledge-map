@@ -43,6 +43,33 @@ The generated metadata is frontend/public/map-tiles/metadata.json.
 
 ## MCP
 
+Connect any Streamable HTTP MCP client to `https://map.alkemata.com/mcp`.
+Published map content is public: no account, token, or client registration is
+needed for read tools. In ChatGPT, add a custom MCP connector with that URL and
+choose no authentication for public reading. Other MCP clients use the same URL.
+
+For personal contributions, use OAuth with the same URL. The server advertises
+`https://auth.alkemata.com/realms/alkemata` through its OAuth protected-resource
+metadata. The registered ChatGPT client is `alkemata-chatgpt-mcp`; its secret is
+stored on the server in `/srv/alkemata/auth/keycloak/clients.env` (mode 600).
+An administrator can enter that client ID and secret in the connector's OAuth
+setup, request `openid profile email offline_access knowledge:read knowledge:contribute`, and
+sign in with an individual Keycloak account. Only grant the optional
+`knowledge:contribute` scope to people who need to create topics. The map also
+checks that person's map role: `contributor` creates drafts, while `editor`
+can publish. Without the contribution scope and role, write calls are rejected.
+To require sign-in for all MCP tools, set `OIDC_MCP_ENFORCE=true` in the
+protected map `.env` and restart the API. Set it to `false` for public reads
+with authenticated writes (the current deployment).
+
+To approve a person, create or verify their Keycloak account, then run
+`/srv/alkemata/knowledge-map/runtime/venv/bin/python /srv/alkemata/knowledge-map/scripts/set-map-role.py EMAIL contributor` on the
+server. Use `editor` only for someone authorized to publish. Revoke access by
+setting the role to `reader` or disabling the Keycloak account. A client for
+another LLM host can be registered in Keycloak with authorization code + PKCE,
+the host's exact redirect URI, the `knowledge:read` default scope, and optional
+`knowledge:contribute` scope. Keep client secrets out of the LLM prompt.
+
 MCP exposes get_app_info, get_agent_guidance, search_topics, get_topic,
 get_region, get_trail and create_topic_at_position. Read tools return only
 published content.

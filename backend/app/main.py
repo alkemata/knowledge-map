@@ -1,4 +1,5 @@
 import contextlib
+import json
 import logging
 import time
 import uuid
@@ -50,20 +51,37 @@ async def request_context(request: Request, call_next):
     request_id = request.headers.get("x-request-id") or str(uuid.uuid4())
     request.state.request_id = request_id
     started = time.perf_counter()
-    if settings.oidc_mcp_enforce and request.url.path.startswith("/mcp") and request.method != "OPTIONS":
+    protected_mcp_call = False
+    if request.url.path.startswith("/mcp") and request.method == "POST":
+        try:
+            message = json.loads(await request.body())
+            messages = message if isinstance(message, list) else [message]
+            protected_mcp_call = any(
+                isinstance(item, dict)
+                and item.get("method") == "tools/call"
+                and isinstance(item.get("params"), dict)
+                and item["params"].get("name") == "create_topic_at_position"
+                for item in messages
+            )
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            pass
+    if (settings.oidc_mcp_enforce or protected_mcp_call) and request.url.path.startswith("/mcp") and request.method != "OPTIONS":
         authorization = request.headers.get("authorization", "")
         if not authorization.lower().startswith("bearer "):
-            return mcp_challenge()
+            return mcp_challenge("knowledge:contribute" if protected_mcp_call else "knowledge:read")
         token = authorization[7:].strip()
+        required_scope = "knowledge:contribute" if protected_mcp_call else None
         try:
             claims = verify_mcp_access_token(token)
             scopes = set(str(claims.get("scope", "")).split())
+            if required_scope and required_scope not in scopes:
+                return mcp_challenge(required_scope)
             if not scopes.intersection({"knowledge:read", "knowledge:contribute"}):
-                return mcp_challenge()
+                return mcp_challenge("knowledge:read")
         except (HTTPException, RuntimeError):
             with new_session() as db:
-                if not valid_legacy_mcp_token(token, db):
-                    return mcp_challenge()
+                if not valid_legacy_mcp_token(token, db, required_scope):
+                    return mcp_challenge(required_scope or "knowledge:read")
     response = await call_next(request)
     response.headers["X-Request-Id"] = request_id
     response.headers["X-Content-Type-Options"] = "nosniff"
@@ -114,4 +132,3 @@ def mcp_resource_metadata() -> dict:
 
 
 app.routes.append(Mount("/mcp", app=mcp_app))
-

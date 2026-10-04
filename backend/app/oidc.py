@@ -180,7 +180,7 @@ def verify_mcp_access_token(token: str) -> dict:
     return verify_jwt(token, settings.oidc_mcp_audience)
 
 
-def valid_legacy_mcp_token(token: str, db: Session) -> bool:
+def valid_legacy_mcp_token(token: str, db: Session, required_scope: str | None = None) -> bool:
     from datetime import datetime, timezone
     from .models import AgentCredential
 
@@ -192,13 +192,14 @@ def valid_legacy_mcp_token(token: str, db: Session) -> bool:
         credential
         and credential.user.disabled_at is None
         and (credential.expires_at is None or credential.expires_at > datetime.now(timezone.utc))
-        and bool(set(credential.scopes).intersection({"knowledge:read", "knowledge:contribute"}))
+        and (required_scope in credential.scopes if required_scope else
+             bool(set(credential.scopes).intersection({"knowledge:read", "knowledge:contribute"})))
     )
 
 
-def mcp_challenge() -> Response:
+def mcp_challenge(scope: str = "knowledge:read") -> Response:
     metadata = settings.public_origin + "/.well-known/oauth-protected-resource/mcp"
     return Response(
         status_code=401,
-        headers={"WWW-Authenticate": f'Bearer resource_metadata="{metadata}"'},
+        headers={"WWW-Authenticate": f'Bearer resource_metadata="{metadata}", scope="{scope}"'},
     )
