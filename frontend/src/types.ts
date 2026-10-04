@@ -64,6 +64,7 @@ export type Viewport = {
 
 export type TileConfig = {
   url_template: string;
+  image_url?: string;
   tile_size: number;
   min_zoom: number;
   max_native_zoom: number;

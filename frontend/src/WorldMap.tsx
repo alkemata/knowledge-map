@@ -55,7 +55,12 @@ export function WorldMap({ map, selectedPlacementId, onSelect, onCamera }: Props
         worldToLeaflet({ x: bounds.min_x, y: bounds.min_y }),
         worldToLeaflet({ x: bounds.max_x, y: bounds.max_y }),
       );
-      if (tileConfig) {
+      if (tileConfig?.image_url) {
+        L.imageOverlay(tileConfig.image_url, worldBounds, {
+          interactive: false,
+          className: "world-background-image",
+        }).addTo(instance);
+      } else if (tileConfig) {
         L.tileLayer(tileConfig.url_template, {
           tileSize: tileConfig.tile_size,
           minZoom: tileConfig.min_zoom,
@@ -69,7 +74,7 @@ export function WorldMap({ map, selectedPlacementId, onSelect, onCamera }: Props
         }).addTo(instance);
       }
       instance.setMaxBounds(worldBounds.pad(0.08));
-      instance.fitBounds(worldBounds);
+      instance.setView(worldToLeaflet(map.default_camera), map.default_camera.z);
     } else {
       instance.setView(worldToLeaflet(map.default_camera), map.default_camera.z);
     }
