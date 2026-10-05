@@ -23,7 +23,8 @@ logging.basicConfig(level=settings.log_level, format="%(asctime)s %(levelname)s 
 logger = logging.getLogger("knowledge-map")
 
 
-def record_usage(request: Request, status: int, started: float, tool_name: str | None = None) -> None:
+def record_usage(request: Request, status: int, started: float, tool_name: str | None = None,
+                 outcome: str | None = None) -> None:
     path = request.url.path
     if path.startswith("/mcp"):
         source = "mcp"
@@ -43,7 +44,7 @@ def record_usage(request: Request, status: int, started: float, tool_name: str |
             db.add(UsageEvent(
                 source=source, action=action, tool_name=tool_name,
                 access="private" if request.headers.get("authorization") or request.cookies.get("km_session") else "public",
-                outcome="denied" if status in (401, 403) else "http_error" if status >= 400 else "transport_ok",
+                outcome=outcome or ("denied" if status in (401, 403) else "http_error" if status >= 400 else "transport_ok"),
                 status_code=status, latency_ms=round((time.perf_counter() - started) * 1000, 2),
                 client=client,
             ))
@@ -134,7 +135,7 @@ async def request_context(request: Request, call_next):
         if not authorization.lower().startswith("bearer "):
             denied = (mcp_tool_challenge(protected_message.get("id"), request) if protected_mcp_call
                       else mcp_challenge("knowledge:read", mcp_metadata_url(request)))
-            record_usage(request, 403, started, tool_name)
+            record_usage(request, denied.status_code, started, tool_name, "denied")
             return denied
         token = authorization[7:].strip()
         required_scope = "knowledge:contribute" if protected_mcp_call else None
@@ -142,17 +143,20 @@ async def request_context(request: Request, call_next):
             claims = verify_mcp_access_token(token)
             scopes = set(str(claims.get("scope", "")).split())
             if required_scope and required_scope not in scopes:
-                record_usage(request, 403, started, tool_name)
-                return mcp_tool_challenge(protected_message.get("id"), request)
+                denied = mcp_tool_challenge(protected_message.get("id"), request)
+                record_usage(request, denied.status_code, started, tool_name, "denied")
+                return denied
             if not scopes.intersection({"knowledge:read", "knowledge:contribute"}):
-                record_usage(request, 403, started, tool_name)
-                return mcp_challenge("knowledge:read", mcp_metadata_url(request))
+                denied = mcp_challenge("knowledge:read", mcp_metadata_url(request))
+                record_usage(request, denied.status_code, started, tool_name, "denied")
+                return denied
         except (HTTPException, RuntimeError):
             with new_session() as db:
                 if not valid_legacy_mcp_token(token, db, required_scope):
-                    record_usage(request, 403, started, tool_name)
-                    return (mcp_tool_challenge(protected_message.get("id"), request) if protected_mcp_call
-                            else mcp_challenge("knowledge:read", mcp_metadata_url(request)))
+                    denied = (mcp_tool_challenge(protected_message.get("id"), request) if protected_mcp_call
+                              else mcp_challenge("knowledge:read", mcp_metadata_url(request)))
+                    record_usage(request, denied.status_code, started, tool_name, "denied")
+                    return denied
     response = await call_next(request)
     response.headers["X-Request-Id"] = request_id
     response.headers["X-Content-Type-Options"] = "nosniff"
