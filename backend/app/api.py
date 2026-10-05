@@ -1,14 +1,16 @@
 import hashlib
+import html
 import json
 import secrets
 import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 from xml.etree import ElementTree
 
 from fastapi import APIRouter, Depends, File, Header, HTTPException, Request, Response, UploadFile
-from fastapi.responses import RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse
+from pydantic import BaseModel, Field
 from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session
 
@@ -19,6 +21,7 @@ from .models import (
     Asset, AuditEvent, BrowserSession, ChangeRequest, ContentStatus, EntityRevision,
     IdempotencyRecord, KnowledgeMap, Layer, Placement, Region, Relationship, Role,
     TerrainFeature, Topic, TopicRevision, Trail, TrailEdge, TrailStep, User,
+    UsageEvent,
 )
 from .oidc import finish_login, start_login
 from .schemas import (
@@ -32,6 +35,104 @@ from .services import (
 
 settings = get_settings()
 router = APIRouter(prefix="/api/v1")
+
+
+class MapUsageInput(BaseModel):
+    action: Literal["map_open", "topic_open", "search_open"]
+
+
+class AIUsageInput(BaseModel):
+    model_name: str = Field(min_length=1, max_length=120, pattern=r"^[a-zA-Z0-9_.:/-]+$")
+    operation: Literal["model_call", "agent_run"]
+    outcome: Literal["success", "error"]
+    input_tokens: int = Field(ge=0, le=100000000)
+    output_tokens: int = Field(ge=0, le=100000000)
+    latency_ms: float = Field(ge=0, le=3600000)
+
+
+@router.post("/analytics/client-event", status_code=204)
+def map_usage(event: MapUsageInput, request: Request, db: Session = Depends(get_db)) -> Response:
+    if request.headers.get("origin") != settings.public_origin:
+        raise HTTPException(403, "Same-origin event required")
+    db.add(UsageEvent(source="map_ui", action=event.action, access="public",
+                      outcome="reported", status_code=204, latency_ms=0, client="browser"))
+    db.commit()
+    return Response(status_code=204)
+
+
+@router.post("/analytics/ai-event", status_code=204)
+def ai_usage(event: AIUsageInput, request: Request, db: Session = Depends(get_db),
+             actor: User = Depends(verify_csrf)) -> Response:
+    if actor.role not in (Role.contributor, Role.editor, Role.administrator):
+        raise HTTPException(403, "Contributor role required")
+    db.add(UsageEvent(source="ai_client", action=event.operation, access="private",
+                      outcome=event.outcome, status_code=204, latency_ms=event.latency_ms,
+                      client="self_reported", model_name=event.model_name,
+                      input_tokens=event.input_tokens, output_tokens=event.output_tokens))
+    db.commit()
+    return Response(status_code=204)
+
+
+@router.get("/analytics")
+def analytics(days: int = 7, db: Session = Depends(get_db),
+              actor: User = Depends(require_role(Role.administrator))) -> dict[str, Any]:
+    """Administrator-only, aggregate usage. No prompts, arguments, URLs or IPs are stored."""
+    days = min(max(days, 1), 90)
+    since = datetime.now(timezone.utc) - timedelta(days=days)
+    criterion = UsageEvent.created_at >= since
+    def grouped(column, *extra):
+        statement = select(column, func.count()).where(criterion, *extra).group_by(column)
+        return {str(label): count for label, count in db.execute(statement) if label is not None}
+    totals = db.execute(select(
+        func.count(), func.coalesce(func.sum(UsageEvent.input_tokens), 0),
+        func.coalesce(func.sum(UsageEvent.output_tokens), 0),
+        func.percentile_cont(.95).within_group(UsageEvent.latency_ms),
+    ).where(criterion)).one()
+    by_day = grouped(func.date(UsageEvent.created_at))
+    return {
+        "period_days": days, "total_events": totals[0],
+        "by_source": grouped(UsageEvent.source),
+        "by_tool": grouped(UsageEvent.tool_name),
+        "by_client": grouped(UsageEvent.client),
+        "by_access": grouped(UsageEvent.access),
+        "by_action": grouped(UsageEvent.action, UsageEvent.source == "map_app"),
+        "by_day": by_day, "outcomes": grouped(UsageEvent.outcome),
+        "by_model": grouped(UsageEvent.model_name),
+        "input_tokens": totals[1], "output_tokens": totals[2],
+        "p95_latency_ms": round(totals[3], 2) if totals[3] is not None else None,
+        "measurement": "HTTP transport status; MCP tool-level errors may return HTTP 200",
+    }
+
+
+@router.get("/analytics/dashboard", response_class=HTMLResponse)
+def analytics_dashboard(days: int = 7, db: Session = Depends(get_db),
+                        actor: User = Depends(require_role(Role.administrator))) -> HTMLResponse:
+    report = analytics(days, db, actor)
+    def table(title: str, values: dict[str, int]) -> str:
+        lines = "".join(f"<tr><th scope='row'>{html.escape(str(k))}</th><td>{v}</td></tr>"
+                        for k, v in sorted(values.items(), key=lambda item: -item[1]))
+        return f"<section><h2>{html.escape(title)}</h2><table><thead><tr><th>Item</th><th>Calls</th></tr></thead><tbody>{lines or '<tr><td colspan=2>No events yet</td></tr>'}</tbody></table></section>"
+    body = (
+        "<!doctype html><html lang='en'><meta charset='utf-8'><title>Alkemata usage</title>"
+        "<meta name='viewport' content='width=device-width,initial-scale=1'>"
+        "<main><h1>Alkemata usage</h1>"
+        f"<p>Last {report['period_days']} days · {report['total_events']} events · "
+        f"p95 {report['p95_latency_ms'] or 0} ms</p>"
+        "<p><a href='?days=1'>Today</a> · <a href='?days=7'>7 days</a> · "
+        "<a href='?days=30'>30 days</a> · <a href='/api/v1/analytics'>JSON</a></p>"
+        + table("Sources", report["by_source"])
+        + table("MCP tools", report["by_tool"])
+        + table("Clients", report["by_client"])
+        + table("Access", report["by_access"])
+        + table("Map app routes", report["by_action"])
+        + table("Outcomes", report["outcomes"])
+        + table("Self-reported AI models", report["by_model"])
+        + table("Daily activity", report["by_day"])
+        + f"<p>Self-reported tokens: {report['input_tokens']} in / {report['output_tokens']} out.</p>"
+        + "<p>Counts start when collection was enabled. Transport success does not guarantee MCP tool success. "
+          "WordPress visits and AI model tokens require separate instrumentation.</p></main></html>"
+    )
+    return HTMLResponse(body, headers={"Cache-Control": "private, no-store"})
 
 
 def fail(status: int, code: str, message: str, details: dict[str, Any] | None = None) -> None:
@@ -507,4 +608,3 @@ def post_change_request(entity_type: str, payload: dict[str, Any], entity_id: uu
     db.add(item)
     db.commit()
     return {"id": str(item.id), "status": item.status}
-

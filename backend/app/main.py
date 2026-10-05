@@ -15,11 +15,41 @@ from .api import router
 from .config import get_settings
 from .database import new_session
 from .mcp_server import mcp, mcp_app
+from .models import UsageEvent
 from .oidc import mcp_challenge, valid_legacy_mcp_token, verify_mcp_access_token
 
 settings = get_settings()
 logging.basicConfig(level=settings.log_level, format="%(asctime)s %(levelname)s %(name)s %(message)s")
 logger = logging.getLogger("knowledge-map")
+
+
+def record_usage(request: Request, status: int, started: float, tool_name: str | None = None) -> None:
+    path = request.url.path
+    if path.startswith("/mcp"):
+        source = "mcp"
+        action = "tool_call" if tool_name else "protocol"
+    elif path.startswith("/api/v1/") and not path.startswith(("/api/v1/health/", "/api/v1/analytics")):
+        source = "map_app"
+        # Route templates avoid storing topic IDs, search terms or other URL data.
+        route = request.scope.get("route")
+        action = getattr(route, "path", None) or "/api/v1/unknown"
+        action = action[:120]
+    else:
+        return
+    user_agent = request.headers.get("user-agent", "").lower()
+    client = next((name for name in ("chatgpt", "claude", "codex", "curl") if name in user_agent), "other")
+    try:
+        with new_session() as db:
+            db.add(UsageEvent(
+                source=source, action=action, tool_name=tool_name,
+                access="private" if request.headers.get("authorization") or request.cookies.get("km_session") else "public",
+                outcome="denied" if status in (401, 403) else "http_error" if status >= 400 else "transport_ok",
+                status_code=status, latency_ms=round((time.perf_counter() - started) * 1000, 2),
+                client=client,
+            ))
+            db.commit()
+    except Exception:
+        logger.exception("usage_event_failed request_id=%s", getattr(request.state, "request_id", "unknown"))
 
 
 @contextlib.asynccontextmanager
@@ -77,10 +107,18 @@ async def request_context(request: Request, call_next):
     request.state.request_id = request_id
     started = time.perf_counter()
     protected_message = None
+    tool_name = None
     if request.url.path.startswith("/mcp") and request.method == "POST":
         try:
             message = json.loads(await request.body())
             messages = message if isinstance(message, list) else [message]
+            tool_call = next((item for item in messages if isinstance(item, dict)
+                              and item.get("method") == "tools/call"
+                              and isinstance(item.get("params"), dict)), None)
+            if tool_call:
+                candidate = tool_call["params"].get("name")
+                if isinstance(candidate, str):
+                    tool_name = candidate[:120]
             protected_message = next((
                 item for item in messages if
                 isinstance(item, dict)
@@ -94,20 +132,25 @@ async def request_context(request: Request, call_next):
     if (settings.oidc_mcp_enforce or protected_mcp_call) and request.url.path.startswith("/mcp") and request.method != "OPTIONS":
         authorization = request.headers.get("authorization", "")
         if not authorization.lower().startswith("bearer "):
-            return (mcp_tool_challenge(protected_message.get("id"), request) if protected_mcp_call
-                    else mcp_challenge("knowledge:read", mcp_metadata_url(request)))
+            denied = (mcp_tool_challenge(protected_message.get("id"), request) if protected_mcp_call
+                      else mcp_challenge("knowledge:read", mcp_metadata_url(request)))
+            record_usage(request, 403, started, tool_name)
+            return denied
         token = authorization[7:].strip()
         required_scope = "knowledge:contribute" if protected_mcp_call else None
         try:
             claims = verify_mcp_access_token(token)
             scopes = set(str(claims.get("scope", "")).split())
             if required_scope and required_scope not in scopes:
+                record_usage(request, 403, started, tool_name)
                 return mcp_tool_challenge(protected_message.get("id"), request)
             if not scopes.intersection({"knowledge:read", "knowledge:contribute"}):
+                record_usage(request, 403, started, tool_name)
                 return mcp_challenge("knowledge:read", mcp_metadata_url(request))
         except (HTTPException, RuntimeError):
             with new_session() as db:
                 if not valid_legacy_mcp_token(token, db, required_scope):
+                    record_usage(request, 403, started, tool_name)
                     return (mcp_tool_challenge(protected_message.get("id"), request) if protected_mcp_call
                             else mcp_challenge("knowledge:read", mcp_metadata_url(request)))
     response = await call_next(request)
@@ -121,6 +164,7 @@ async def request_context(request: Request, call_next):
         "frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
     )
     elapsed = round((time.perf_counter() - started) * 1000, 2)
+    record_usage(request, response.status_code, started, tool_name)
     logger.info("request request_id=%s method=%s route=%s status=%s latency_ms=%s", request_id, request.method, request.url.path, response.status_code, elapsed)
     return response
 

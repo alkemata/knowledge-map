@@ -70,6 +70,27 @@ class AgentCredential(Base):
     user: Mapped[User] = relationship()
 
 
+class UsageEvent(Base):
+    __tablename__ = "usage_events"
+    __table_args__ = (
+        Index("ix_usage_events_time_source", "created_at", "source"),
+        Index("ix_usage_events_tool_time", "tool_name", "created_at"),
+    )
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    source: Mapped[str] = mapped_column(String(32))
+    action: Mapped[str] = mapped_column(String(120))
+    tool_name: Mapped[str | None] = mapped_column(String(120))
+    access: Mapped[str] = mapped_column(String(20))
+    outcome: Mapped[str] = mapped_column(String(20))
+    status_code: Mapped[int] = mapped_column(Integer)
+    latency_ms: Mapped[float] = mapped_column(Float)
+    client: Mapped[str | None] = mapped_column(String(80))
+    model_name: Mapped[str | None] = mapped_column(String(120))
+    input_tokens: Mapped[int | None] = mapped_column(Integer)
+    output_tokens: Mapped[int | None] = mapped_column(Integer)
+
+
 class KnowledgeMap(Base):
     __tablename__ = "maps"
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -303,4 +324,3 @@ class IdempotencyRecord(Base):
     request_hash: Mapped[str] = mapped_column(String(64))
     response: Mapped[dict[str, Any]] = mapped_column(JSONB)
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
-
