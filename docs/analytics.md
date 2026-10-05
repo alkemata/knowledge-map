@@ -44,6 +44,12 @@ token. WordPress stores only its SHA-256 hash in the
 its private `.env` file. The route returns only daily totals and top published
 post/page counts. Anonymous and invalid-token requests return 403.
 
+The map API runs as the `alkemata-map-api` user service. Its environment is
+loaded by `scripts/start-map-api.sh`; the user manager has lingering enabled
+so the service starts without an active SSH session. After one-time WordPress
+setup, remove `rdi` from the host Docker group if Docker management is no
+longer needed. Docker group membership grants host-level privileges.
+
 ## Interpretation and next integrations
 
 `transport_ok` means HTTP succeeded. Some MCP tool failures are carried inside

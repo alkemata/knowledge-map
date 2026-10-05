@@ -1,0 +1,13 @@
+[Unit]
+Description=Alkemata Knowledge Map API
+After=default.target
+
+[Service]
+Type=simple
+WorkingDirectory=/srv/alkemata/knowledge-map
+ExecStart=/srv/alkemata/knowledge-map/scripts/start-map-api.sh
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=default.target
