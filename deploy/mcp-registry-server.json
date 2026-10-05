@@ -1,0 +1,13 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "com.alkemata/public-knowledge",
+  "title": "Alkemata Knowledge Gateway",
+  "description": "Alkemata articles, pages and map tools; scoped OAuth protects map contributions.",
+  "version": "1.2.0",
+  "remotes": [
+    {
+      "type": "streamable-http",
+      "url": "https://alkemata.com/wp-json/mcp/alkemata-public"
+    }
+  ]
+}

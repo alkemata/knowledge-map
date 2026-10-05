@@ -197,8 +197,8 @@ def valid_legacy_mcp_token(token: str, db: Session, required_scope: str | None =
     )
 
 
-def mcp_challenge(scope: str = "knowledge:read") -> Response:
-    metadata = settings.public_origin + "/.well-known/oauth-protected-resource/mcp"
+def mcp_challenge(scope: str = "knowledge:read", metadata: str | None = None) -> Response:
+    metadata = metadata or settings.public_origin + "/.well-known/oauth-protected-resource/mcp"
     return Response(
         status_code=401,
         headers={"WWW-Authenticate": f'Bearer resource_metadata="{metadata}", scope="{scope}"'},

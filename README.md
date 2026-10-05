@@ -6,11 +6,14 @@ Production endpoints:
 
 - App: https://map.alkemata.com
 - REST/OpenAPI: https://map.alkemata.com/api/v1 and /api/docs
-- MCP Streamable HTTP: https://map.alkemata.com/mcp
+- Registered MCP gateway: https://alkemata.com/wp-json/mcp/alkemata-public
+- Direct map MCP endpoint: https://map.alkemata.com/mcp
 
 Source is in /srv/alkemata/knowledge-map. The Compose project is
 alkemata-knowledge-map and attaches to the existing traefik_web network.
 WordPress remains separate.
+The live Traefik route and registry manifest are tracked in
+`deploy/traefik-userland.yaml` and `deploy/mcp-registry-server.json`.
 
 ## Deployment
 
@@ -43,12 +46,13 @@ The generated metadata is frontend/public/map-tiles/metadata.json.
 
 ## MCP
 
-Connect any Streamable HTTP MCP client to `https://map.alkemata.com/mcp`.
-Published map content is public: no account, token, or client registration is
+Connect any Streamable HTTP MCP client to the registered gateway at
+`https://alkemata.com/wp-json/mcp/alkemata-public`. Published map and WordPress
+content is public: no account, token, or client registration is
 needed for read tools. In ChatGPT, add a custom MCP connector with that URL and
 choose no authentication for public reading. Other MCP clients use the same URL.
 
-For personal contributions, use OAuth with the same URL. The server advertises
+For personal map contributions, use OAuth with the same URL. The server advertises
 `https://auth.alkemata.com/realms/alkemata` through its OAuth protected-resource
 metadata. The registered ChatGPT client is `alkemata-chatgpt-mcp`; its secret is
 stored on the server in `/srv/alkemata/auth/keycloak/clients.env` (mode 600).
@@ -70,13 +74,14 @@ another LLM host can be registered in Keycloak with authorization code + PKCE,
 the host's exact redirect URI, the `knowledge:read` default scope, and optional
 `knowledge:contribute` scope. Keep client secrets out of the LLM prompt.
 
-MCP exposes get_app_info, get_agent_guidance, search_topics, get_topic,
-get_region, get_trail, search_articles, get_article and
-create_topic_at_position. Read tools return only published content. The article
-tools read published posts directly from the WordPress REST API at
-`https://alkemata.com`; WordPress remains the source of truth, so articles do
-not need to be copied into the map database. One MCP connection now gives a
-client both map topics and articles.
+The gateway exposes the four original `alkemata-*` public WordPress MCP tools
+for site info, published post/page search, published content and guidance. It
+also exposes map topics, regions and trails, plus `search_articles`,
+`get_article`, and the protected `create_topic_at_position` tool. The original
+WordPress tools are called through WordPress MCP, so its tool activity remains
+recorded there. The newer article tools read the public WordPress REST API.
+WordPress remains the content source; nothing is copied into the map database.
+Private WordPress administration tools are not exposed by this gateway.
 
 create_topic_at_position accepts a title, summary, paragraph content, map ID,
 x/y position, min_zoom, max_zoom, label priority, optional region, language and

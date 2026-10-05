@@ -46,8 +46,14 @@ app.add_middleware(
 )
 
 
-def mcp_tool_challenge(request_id: int | str | None) -> JSONResponse:
-    metadata = settings.public_origin + "/.well-known/oauth-protected-resource/mcp"
+def mcp_metadata_url(request: Request) -> str:
+    if request.url.hostname == "alkemata.com":
+        return "https://alkemata.com/.well-known/oauth-protected-resource/wp-json/mcp/alkemata-public"
+    return settings.public_origin + "/.well-known/oauth-protected-resource/mcp"
+
+
+def mcp_tool_challenge(request_id: int | str | None, request: Request) -> JSONResponse:
+    metadata = mcp_metadata_url(request)
     challenge = (
         f'Bearer resource_metadata="{metadata}", error="insufficient_scope", '
         'error_description="Sign in with a contributor account to create a map topic", '
@@ -57,6 +63,7 @@ def mcp_tool_challenge(request_id: int | str | None) -> JSONResponse:
         "jsonrpc": "2.0",
         "id": request_id,
         "result": {
+            "resultType": "complete",
             "content": [{"type": "text", "text": "Authentication required to create a map topic."}],
             "_meta": {"mcp/www_authenticate": [challenge]},
             "isError": True,
@@ -87,22 +94,22 @@ async def request_context(request: Request, call_next):
     if (settings.oidc_mcp_enforce or protected_mcp_call) and request.url.path.startswith("/mcp") and request.method != "OPTIONS":
         authorization = request.headers.get("authorization", "")
         if not authorization.lower().startswith("bearer "):
-            return (mcp_tool_challenge(protected_message.get("id")) if protected_mcp_call
-                    else mcp_challenge("knowledge:read"))
+            return (mcp_tool_challenge(protected_message.get("id"), request) if protected_mcp_call
+                    else mcp_challenge("knowledge:read", mcp_metadata_url(request)))
         token = authorization[7:].strip()
         required_scope = "knowledge:contribute" if protected_mcp_call else None
         try:
             claims = verify_mcp_access_token(token)
             scopes = set(str(claims.get("scope", "")).split())
             if required_scope and required_scope not in scopes:
-                return mcp_tool_challenge(protected_message.get("id"))
+                return mcp_tool_challenge(protected_message.get("id"), request)
             if not scopes.intersection({"knowledge:read", "knowledge:contribute"}):
-                return mcp_challenge("knowledge:read")
+                return mcp_challenge("knowledge:read", mcp_metadata_url(request))
         except (HTTPException, RuntimeError):
             with new_session() as db:
                 if not valid_legacy_mcp_token(token, db, required_scope):
-                    return (mcp_tool_challenge(protected_message.get("id")) if protected_mcp_call
-                            else mcp_challenge("knowledge:read"))
+                    return (mcp_tool_challenge(protected_message.get("id"), request) if protected_mcp_call
+                            else mcp_challenge("knowledge:read", mcp_metadata_url(request)))
     response = await call_next(request)
     response.headers["X-Request-Id"] = request_id
     response.headers["X-Content-Type-Options"] = "nosniff"

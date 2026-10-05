@@ -40,11 +40,11 @@ class Settings(BaseSettings):
     def mcp_allowed_hosts(self) -> list[str]:
         host = urlsplit(self.public_origin).netloc
         values = [host, f"{host}:*"] if host else []
-        return values + ["localhost:*", "127.0.0.1:*"]
+        return values + ["alkemata.com", "alkemata.com:*", "localhost:*", "127.0.0.1:*"]
 
     @property
     def mcp_allowed_origins(self) -> list[str]:
-        return self.origins + ["http://localhost:*", "http://127.0.0.1:*"]
+        return self.origins + ["https://alkemata.com", "http://localhost:*", "http://127.0.0.1:*"]
 
 
 @lru_cache

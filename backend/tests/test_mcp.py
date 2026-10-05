@@ -9,18 +9,20 @@ async def test_real_mcp_client_lists_and_calls_tools():
     async with Client(mcp) as client:
         tools = await client.list_tools()
         names = {tool.name for tool in tools.tools}
-        assert {"get_app_info", "get_agent_guidance", "search_topics", "get_topic", "get_region", "get_trail", "search_articles", "get_article", "create_topic_at_position"} <= names
+        assert {"get_app_info", "get_agent_guidance", "search_topics", "get_topic", "get_region", "get_trail", "search_articles", "get_article", "alkemata-get-site-info", "alkemata-search-published-content", "alkemata-get-published-content", "alkemata-get-agent-guidance", "create_topic_at_position"} <= names
         create_tool = next(tool for tool in tools.tools if tool.name == "create_topic_at_position")
         properties = create_tool.input_schema["properties"]
         assert {"x", "y", "min_zoom", "max_zoom", "label_priority"} <= properties.keys()
         read_tool = next(tool for tool in tools.tools if tool.name == "search_topics")
         assert {"type": "oauth2", "scopes": ["knowledge:read"]} in read_tool.model_dump(by_alias=True)["_meta"]["securitySchemes"]
+        public_wordpress = next(tool for tool in tools.tools if tool.name == "alkemata-get-published-content")
+        assert {"type": "noauth"} in public_wordpress.model_dump(by_alias=True)["_meta"]["securitySchemes"]
         assert create_tool.model_dump(by_alias=True)["_meta"]["securitySchemes"] == [
             {"type": "oauth2", "scopes": ["knowledge:contribute"]}
         ]
         result = await client.call_tool("get_app_info", {})
         assert not result.is_error
-        assert result.structured_content["name"] == "Alkemata Knowledge Map"
+        assert result.structured_content["name"] == "Alkemata Knowledge Gateway"
 
 
 @pytest.mark.asyncio

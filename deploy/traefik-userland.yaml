@@ -1,8 +1,31 @@
 http:
   routers:
+    alkemata-public-wordpress-upstream:
+      entryPoints: [websecure]
+      rule: "Host(`alkemata.com`) && (Path(`/wp-json/mcp/alkemata-public`) || Path(`/wp-json/mcp/alkemata-public/`)) && Headers(`X-Alkemata-MCP-Upstream`, `wordpress`)"
+      priority: 300
+      service: wordpress@docker
+      tls:
+        certResolver: myresolver
+    alkemata-public-gateway:
+      entryPoints: [websecure]
+      rule: "Host(`alkemata.com`) && (Path(`/wp-json/mcp/alkemata-public`) || Path(`/wp-json/mcp/alkemata-public/`))"
+      priority: 200
+      middlewares: [alkemata-public-mcp-path]
+      service: knowledge-map-api
+      tls:
+        certResolver: myresolver
+    alkemata-public-metadata:
+      entryPoints: [websecure]
+      rule: "Host(`alkemata.com`) && Path(`/.well-known/oauth-protected-resource/wp-json/mcp/alkemata-public`)"
+      priority: 200
+      middlewares: [alkemata-public-metadata-path]
+      service: knowledge-map-api
+      tls:
+        certResolver: myresolver
     knowledge-map-api:
       entryPoints: [websecure]
-      rule: "Host(`map.alkemata.com`) && (PathPrefix(`/api`) || PathPrefix(`/mcp`))"
+      rule: "Host(`map.alkemata.com`) && (PathPrefix(`/api`) || PathPrefix(`/mcp`) || PathPrefix(`/.well-known/oauth-protected-resource`))"
       priority: 100
       service: knowledge-map-api
       tls:
@@ -25,3 +48,10 @@ http:
         servers:
           - url: "http://172.17.0.1:18080"
         passHostHeader: true
+  middlewares:
+    alkemata-public-mcp-path:
+      replacePath:
+        path: /mcp/
+    alkemata-public-metadata-path:
+      replacePath:
+        path: /.well-known/oauth-protected-resource/mcp

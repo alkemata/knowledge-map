@@ -2,7 +2,7 @@ import hashlib
 import json
 import uuid
 from datetime import datetime, timedelta, timezone
-from typing import Any
+from typing import Any, Literal
 
 from mcp.server import MCPServer
 from mcp.server.mcpserver import Context
@@ -37,6 +37,7 @@ from .services import (
     topic_json,
     viewport,
 )
+from .wordpress_mcp_bridge import PUBLIC_WORDPRESS_MCP, call_public_wordpress_tool
 from .wordpress_articles import get_article as get_wordpress_article
 from .wordpress_articles import search_articles as search_wordpress_articles
 
@@ -48,10 +49,10 @@ READ_SECURITY = {"securitySchemes": (
 )}
 WRITE_SECURITY = {"securitySchemes": [{"type": "oauth2", "scopes": ["knowledge:contribute"]}]}
 mcp = MCPServer(
-    "Alkemata Map and Articles",
-    version="1.1.0",
+    "Alkemata Knowledge Gateway",
+    version="1.2.0",
     instructions=(
-        "Read published Alkemata Knowledge Map content and WordPress articles. "
+        "Read published Alkemata Knowledge Map content, WordPress articles and pages. "
         "Authenticated agents with knowledge:contribute may create topics and placements. "
         "Contributor writes remain drafts; editor writes may be published."
     ),
@@ -98,10 +99,11 @@ def _write_actor(db: Session, ctx: Context) -> User:
 def get_app_info() -> dict[str, Any]:
     """Return canonical origin, protocol endpoint, schemas and public capabilities."""
     return {
-        "name": "Alkemata Knowledge Map",
-        "version": "1.1.0",
+        "name": "Alkemata Knowledge Gateway",
+        "version": "1.2.0",
         "canonical_origin": settings.public_origin,
-        "mcp_url": f"{settings.public_origin}/mcp",
+        "mcp_url": PUBLIC_WORDPRESS_MCP,
+        "direct_map_mcp_url": f"{settings.public_origin}/mcp",
         "protocol": "Streamable HTTP",
         "content_schema_versions": [1],
         "coordinate_version": 1,
@@ -148,6 +150,39 @@ def search_topics(query: str = "", language: str | None = None, limit: int = 20)
     with new_session() as db:
         items = search_domain(db, query, language, min(max(limit, 1), 100))
         return {"items": items, "next_cursor": None}
+
+
+@mcp.tool(name="alkemata-get-site-info", meta=READ_SECURITY)
+async def public_site_info() -> dict[str, Any]:
+    """Get the published WordPress site's identity, URLs and language."""
+    return await call_public_wordpress_tool("alkemata-get-site-info", {})
+
+
+@mcp.tool(name="alkemata-search-published-content", meta=READ_SECURITY)
+async def public_content_search(
+    query: str = "", post_type: Literal["post", "page"] = "post", per_page: int = 5,
+) -> dict[str, Any]:
+    """Search published WordPress posts or pages through the existing public MCP."""
+    if not 1 <= per_page <= 10:
+        raise ValueError("per_page must be 1-10")
+    return await call_public_wordpress_tool(
+        "alkemata-search-published-content",
+        {"query": query, "post_type": post_type, "per_page": per_page},
+    )
+
+
+@mcp.tool(name="alkemata-get-published-content", meta=READ_SECURITY)
+async def public_content_get(post_id: int) -> dict[str, Any]:
+    """Read a published WordPress post or page through the existing public MCP."""
+    if post_id < 1:
+        raise ValueError("post_id must be positive")
+    return await call_public_wordpress_tool("alkemata-get-published-content", {"post_id": post_id})
+
+
+@mcp.tool(name="alkemata-get-agent-guidance", meta=READ_SECURITY)
+async def public_wordpress_guidance() -> dict[str, Any]:
+    """Get WordPress's published-site guidance and authoritative URLs."""
+    return await call_public_wordpress_tool("alkemata-get-agent-guidance", {})
 
 
 @mcp.tool(meta=READ_SECURITY)
