@@ -32,6 +32,7 @@ from .services import (
     create_revision, create_topic, create_trail, placement_json, publish_revision,
     region_json, revision_json, search_topics, topic_json, validate_placement_context, viewport,
 )
+from .wordpress_statistics import get_wordpress_statistics
 
 settings = get_settings()
 router = APIRouter(prefix="/api/v1")
@@ -100,6 +101,7 @@ def analytics(days: int = 7, db: Session = Depends(get_db),
         "by_model": grouped(UsageEvent.model_name),
         "input_tokens": totals[1], "output_tokens": totals[2],
         "p95_latency_ms": round(totals[3], 2) if totals[3] is not None else None,
+        "wordpress": get_wordpress_statistics(days),
         "measurement": "HTTP transport status; MCP tool-level errors may return HTTP 200",
     }
 
@@ -128,9 +130,15 @@ def analytics_dashboard(days: int = 7, db: Session = Depends(get_db),
         + table("Outcomes", report["outcomes"])
         + table("Self-reported AI models", report["by_model"])
         + table("Daily activity", report["by_day"])
+        + (f"<section><h2>WordPress site</h2><p>{report['wordpress']['visitors']} visitors · "
+           f"{report['wordpress']['views']} page views in the selected period (WP Statistics).</p></section>"
+           + table("Top published articles and pages", {
+               row["title"]: row["views"] for row in report["wordpress"]["top_pages"]
+           })
+           if report["wordpress"] else "<p>WordPress statistics are temporarily unavailable.</p>")
         + f"<p>Self-reported tokens: {report['input_tokens']} in / {report['output_tokens']} out.</p>"
         + "<p>Counts start when collection was enabled. Transport success does not guarantee MCP tool success. "
-          "WordPress visits and AI model tokens require separate instrumentation.</p></main></html>"
+          "AI model tokens appear only when clients report them.</p></main></html>"
     )
     return HTMLResponse(body, headers={"Cache-Control": "private, no-store"})
 

@@ -32,6 +32,17 @@ map administrator account. No anonymous statistics endpoint is available.
   or `error`. Do not include prompt or response content. These figures are
   self-reported by the client, and ChatGPT does not automatically provide them
   to an MCP server.
+- WordPress site visits and top published content come from the existing WP
+  Statistics plugin through a dedicated read-only bridge. The dashboard fetches
+  aggregates directly; it does not copy visitor records, IPs, or referrers.
+
+The WordPress bridge is installed as
+`wp-content/mu-plugins/alkemata-private-statistics.php`. Its
+`/wp-json/alkemata-analytics/v1/summary` route requires a dedicated bearer
+token. WordPress stores only its SHA-256 hash in the
+`alkemata_analytics_token_hash` option; the map service reads the token from
+its private `.env` file. The route returns only daily totals and top published
+post/page counts. Anonymous and invalid-token requests return 403.
 
 ## Interpretation and next integrations
 
@@ -40,13 +51,10 @@ HTTP 200 responses, so it is not a count of successful tool execution. Public
 clients' user agents can be absent or inaccurate. The dashboard counts events,
 not unique people.
 
-The WordPress site does not currently send visit events to this dashboard.
-Its existing Easy MCP AI statistics concern that plugin's own endpoint. To add
-page visits, install a site tracker in WordPress, integrate it with the site's
-existing consent setup, and connect its aggregate reporting API. Until then,
-WordPress MCP calls routed through the gateway appear as MCP tool events, but
-ordinary article page views do not. Other apps can use the AI event contract
-for model calls; product actions need their own event adapter.
+WordPress MCP calls routed through the gateway appear as MCP tool events; site
+visits come from WP Statistics. The existing Easy MCP AI statistics concern
+that plugin's own endpoint. Other apps can use the AI event contract for
+model calls; product actions need their own event adapter.
 
 Back up the database before schema migrations. Usage data resides in the
 `usage_events` table. The dashboard queries only the selected date range and

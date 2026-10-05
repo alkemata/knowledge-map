@@ -26,6 +26,7 @@ class Settings(BaseSettings):
     oidc_browser_client_secret: str = ""
     oidc_mcp_audience: str = ""
     oidc_mcp_enforce: bool = False
+    wordpress_stats_token: str = ""
 
     @field_validator("public_origin")
     @classmethod
