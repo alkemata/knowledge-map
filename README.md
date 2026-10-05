@@ -71,8 +71,12 @@ the host's exact redirect URI, the `knowledge:read` default scope, and optional
 `knowledge:contribute` scope. Keep client secrets out of the LLM prompt.
 
 MCP exposes get_app_info, get_agent_guidance, search_topics, get_topic,
-get_region, get_trail and create_topic_at_position. Read tools return only
-published content.
+get_region, get_trail, search_articles, get_article and
+create_topic_at_position. Read tools return only published content. The article
+tools read published posts directly from the WordPress REST API at
+`https://alkemata.com`; WordPress remains the source of truth, so articles do
+not need to be copied into the map database. One MCP connection now gives a
+client both map topics and articles.
 
 create_topic_at_position accepts a title, summary, paragraph content, map ID,
 x/y position, min_zoom, max_zoom, label priority, optional region, language and
