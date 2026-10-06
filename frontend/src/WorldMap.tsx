@@ -93,12 +93,11 @@ export function WorldMap({ map, selectedPlacementId, onSelect, onCamera }: Props
         const marker = L.marker(worldToLeaflet(placement), {
           icon: L.divIcon({
             className: `content-node tone-${Math.max(0, regionIndex) % 3}${selected ? " selected" : ""}`,
-            html: `<span class="content-node-title">${escapeHtml(placement.topic.title)}</span>`,
-            iconSize: [112, 112],
-            iconAnchor: [56, 56],
+            html: `<span class="content-node-dot" aria-hidden="true"></span><span class="content-node-label">${escapeHtml(placement.topic.title)}</span>`,
+            iconSize: [36, 36],
+            iconAnchor: [18, 18],
           }),
           keyboard: true,
-          title: placement.topic.title,
           alt: placement.topic.title,
           riseOnHover: true,
         });
