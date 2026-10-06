@@ -3,7 +3,10 @@
 The administrator-only dashboard is at
 `https://map.alkemata.com/api/v1/analytics/dashboard`. Its JSON version is
 `https://map.alkemata.com/api/v1/analytics?days=7` (1–90 days). Sign in with a
-map administrator account. No anonymous statistics endpoint is available.
+map administrator account. A signed-out visit to the HTML dashboard redirects
+to Keycloak and returns to the same selected period after sign-in. The JSON
+endpoint returns 401 until authenticated. No anonymous statistics endpoint is
+available.
 
 ## Collection
 

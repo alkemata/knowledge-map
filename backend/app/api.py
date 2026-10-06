@@ -6,6 +6,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Literal
+from urllib.parse import urlencode
 from xml.etree import ElementTree
 
 from fastapi import APIRouter, Depends, File, Header, HTTPException, Request, Response, UploadFile
@@ -108,7 +109,14 @@ def analytics(days: int = 7, db: Session = Depends(get_db),
 
 @router.get("/analytics/dashboard", response_class=HTMLResponse)
 def analytics_dashboard(days: int = 7, db: Session = Depends(get_db),
-                        actor: User = Depends(require_role(Role.administrator))) -> HTMLResponse:
+                        actor: User | None = Depends(optional_user)) -> Response:
+    if actor is None:
+        destination = f"/api/v1/analytics/dashboard?days={min(max(days, 1), 90)}"
+        return RedirectResponse(
+            "/api/v1/auth/oidc/start?" + urlencode({"next": destination}), status_code=303,
+        )
+    if actor.role != Role.administrator:
+        raise HTTPException(403, detail={"code": "forbidden", "message": "Administrator role required"})
     report = analytics(days, db, actor)
     def table(title: str, values: dict[str, int]) -> str:
         lines = "".join(f"<tr><th scope='row'>{html.escape(str(k))}</th><td>{v}</td></tr>"
