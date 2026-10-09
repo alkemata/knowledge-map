@@ -6,5 +6,10 @@
   "duplicateEmailsAllowed": false,
   "verifyEmail": true,
   "resetPasswordAllowed": true,
-  "registrationAllowed": false
+  "registrationAllowed": false,
+  "rememberMe": true,
+  "ssoSessionIdleTimeout": 1296000,
+  "ssoSessionMaxLifespan": 1296000,
+  "ssoSessionIdleTimeoutRememberMe": 1296000,
+  "ssoSessionMaxLifespanRememberMe": 1296000
 }
