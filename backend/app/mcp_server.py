@@ -20,6 +20,7 @@ from .models import (
     IdempotencyRecord,
     KnowledgeMap,
     Placement,
+    Region,
     Relationship,
     Role,
     Topic,
@@ -53,10 +54,37 @@ mcp = MCPServer(
     version="1.2.0",
     instructions=(
         "Read published Alkemata Knowledge Map content, WordPress articles and pages. "
+        "Call list_maps to obtain exact map and region IDs before placing content. "
         "Authenticated agents with knowledge:contribute may create topics and placements. "
         "Contributor writes remain drafts; editor writes may be published."
     ),
 )
+
+
+def _map_choices(db: Session) -> list[dict[str, Any]]:
+    """Return public map IDs and published regions for MCP placement planning."""
+    maps = list(db.scalars(select(KnowledgeMap).order_by(KnowledgeMap.title)))
+    regions = list(db.scalars(select(Region).where(
+        Region.status == ContentStatus.published,
+    ).order_by(Region.title)))
+    by_map: dict[uuid.UUID, list[dict[str, Any]]] = {}
+    for region in regions:
+        by_map.setdefault(region.map_id, []).append({
+            "id": str(region.id),
+            "title": region.title,
+            "bounds": {
+                "min_x": region.min_x, "min_y": region.min_y,
+                "max_x": region.max_x, "max_y": region.max_y,
+            },
+        })
+    return [{
+        "id": str(item.id),
+        "title": item.title,
+        "description": item.description,
+        "bounds": item.world_bounds,
+        "default_camera": item.default_camera,
+        "regions": by_map.get(item.id, []),
+    } for item in maps]
 
 
 def _write_actor(db: Session, ctx: Context) -> User:
@@ -110,7 +138,21 @@ def get_app_info() -> dict[str, Any]:
         "writes_enabled": settings.mcp_write_enabled,
         "write_authentication": "Keycloak bearer token with knowledge:contribute scope",
         "article_source": "https://alkemata.com",
+        "map_discovery_tool": "list_maps",
     }
+
+
+@mcp.tool(meta=READ_SECURITY)
+def list_maps() -> dict[str, Any]:
+    """List exact map IDs, world bounds and published region IDs before creating content."""
+    with new_session() as db:
+        return {
+            "maps": _map_choices(db),
+            "placement_hint": (
+                "Copy a map id exactly into get_region or create_topic_at_position. "
+                "region_id is optional; if supplied, copy a region id from this result."
+            ),
+        }
 
 
 @mcp.tool(meta=READ_SECURITY)
@@ -125,6 +167,7 @@ def get_agent_guidance() -> dict[str, Any]:
         },
         "rules": [
             "Search for duplicates before creating a topic; reuse existing IDs when suitable.",
+            "Call list_maps and copy its exact map_id; never invent a map or region ID.",
             "Read region context before choosing coordinates; bounds are validated by the server.",
             "Cite real sources, label uncertainty, and never fabricate source metadata.",
             "Write original, useful explanations for humans rather than copied text.",
@@ -238,11 +281,22 @@ def get_region(
     max_y: float,
     zoom: float,
 ) -> dict[str, Any]:
-    """Return published spatial objects and occupancy hints for a bounded viewport."""
+    """Return published objects for a viewport; obtain map_id from list_maps first."""
     with new_session() as db:
-        identifier = uuid.UUID(map_id)
+        try:
+            identifier = uuid.UUID(map_id)
+        except ValueError:
+            return {
+                "ok": False, "error": "invalid_map_id",
+                "message": "map_id must be copied exactly from list_maps.",
+                "maps": _map_choices(db),
+            }
         if not db.get(KnowledgeMap, identifier):
-            raise ValueError("Map not found")
+            return {
+                "ok": False, "error": "map_not_found",
+                "message": "Call list_maps for current map IDs.",
+                "maps": _map_choices(db),
+            }
         result = viewport(db, identifier, (min_x, min_y, max_x, max_y), zoom)
         result["occupancy_hint"] = "Inspect existing placements before proposing a coordinate."
         return result
@@ -305,7 +359,7 @@ def create_topic_at_position(
     publish: bool = False,
     idempotency_key: str | None = None,
 ) -> dict[str, Any]:
-    """Create a topic, its paragraph content, and a map placement in one authenticated operation."""
+    """Create a topic and placement; copy map_id from list_maps, and omit region_id unless needed."""
     if len(content) < 2 or len(content) > 100_000:
         raise ValueError("content must contain between 2 and 100000 characters")
     if idempotency_key is not None and not 1 <= len(idempotency_key) <= 100:
@@ -313,9 +367,22 @@ def create_topic_at_position(
 
     try:
         map_identifier = uuid.UUID(map_id)
+    except ValueError:
+        with new_session() as db:
+            return {
+                "ok": False, "error": "invalid_map_id",
+                "message": "Call list_maps and retry with an exact map id.",
+                "maps": _map_choices(db),
+            }
+    try:
         region_identifier = uuid.UUID(region_id) if region_id else None
-    except ValueError as error:
-        raise ValueError("map_id and region_id must be valid UUIDs") from error
+    except ValueError:
+        with new_session() as db:
+            return {
+                "ok": False, "error": "invalid_region_id",
+                "message": "Omit region_id or copy an exact region id from list_maps.",
+                "maps": _map_choices(db),
+            }
 
     payload = {
         "title": title,
