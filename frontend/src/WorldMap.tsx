@@ -10,15 +10,21 @@ type Props = {
   selectedPlacementId: string | null;
   onSelect: (placement: Placement) => void;
   onCamera: (camera: { x: number; y: number; z: number }) => void;
+  editMode: boolean;
+  refreshKey: number;
+  onMove: (placement: Placement, x: number, y: number) => void;
 };
 
-export function WorldMap({ map, selectedPlacementId, onSelect, onCamera }: Props) {
+export function WorldMap({ map, selectedPlacementId, onSelect, onCamera, editMode, refreshKey, onMove }: Props) {
   const host = useRef<HTMLDivElement>(null);
   const leaflet = useRef<LeafletMap | null>(null);
   const layers = useRef<LayerGroup | null>(null);
   const abort = useRef<AbortController | null>(null);
   const selectRef = useRef(onSelect);
   const cameraRef = useRef(onCamera);
+  const moveRef = useRef(onMove);
+  const editRef = useRef(editMode);
+  const refreshRef = useRef<(() => void) | null>(null);
   const selectedRef = useRef(selectedPlacementId);
   const lastViewport = useRef<Viewport | null>(null);
   const renderRef = useRef<((data: Viewport) => void) | null>(null);
@@ -28,7 +34,15 @@ export function WorldMap({ map, selectedPlacementId, onSelect, onCamera }: Props
   useEffect(() => {
     selectRef.current = onSelect;
     cameraRef.current = onCamera;
-  }, [onSelect, onCamera]);
+    moveRef.current = onMove;
+  }, [onSelect, onCamera, onMove]);
+
+  useEffect(() => {
+    editRef.current = editMode;
+    if (lastViewport.current) renderRef.current?.(lastViewport.current);
+  }, [editMode]);
+
+  useEffect(() => { refreshRef.current?.(); }, [refreshKey]);
 
   useEffect(() => {
     selectedRef.current = selectedPlacementId;
@@ -92,7 +106,7 @@ export function WorldMap({ map, selectedPlacementId, onSelect, onCamera }: Props
         const regionIndex = data.regions.findIndex((region) => region.id === placement.region_id);
         const marker = L.marker(worldToLeaflet(placement), {
           icon: L.divIcon({
-            className: `content-node tone-${Math.max(0, regionIndex) % 3}${selected ? " selected" : ""}`,
+            className: `content-node tone-${Math.max(0, regionIndex) % 3}${selected ? " selected" : ""}${placement.depth === 0 ? " top-category" : ""}${editRef.current ? " editable" : ""}`,
             html: `<span class="content-node-dot" aria-hidden="true"></span><span class="content-node-label">${escapeHtml(placement.topic.title)}</span>`,
             iconSize: [36, 36],
             iconAnchor: [18, 18],
@@ -100,8 +114,13 @@ export function WorldMap({ map, selectedPlacementId, onSelect, onCamera }: Props
           keyboard: true,
           alt: placement.topic.title,
           riseOnHover: true,
+          draggable: editRef.current,
         });
         marker.on("click", () => selectRef.current(placement));
+        marker.on("dragend", () => {
+          const point = marker.getLatLng();
+          moveRef.current(placement, point.lng, point.lat);
+        });
         marker.addTo(group);
       }
     };
@@ -138,17 +157,23 @@ export function WorldMap({ map, selectedPlacementId, onSelect, onCamera }: Props
         }
       }
     };
+    refreshRef.current = () => { void refresh(); };
 
     instance.on("moveend", refresh);
+    const timer = window.setInterval(() => { if (!document.hidden) void refresh(); }, 30000);
+    window.addEventListener("focus", refresh);
     void refresh();
 
     return () => {
+      window.clearInterval(timer);
+      window.removeEventListener("focus", refresh);
       abort.current?.abort();
       instance.remove();
       leaflet.current = null;
       layers.current = null;
       lastViewport.current = null;
       renderRef.current = null;
+      refreshRef.current = null;
     };
   }, [map.id]);
 

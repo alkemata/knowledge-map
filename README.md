@@ -77,11 +77,38 @@ the host's exact redirect URI, the `knowledge:read` default scope, and optional
 The gateway exposes the four original `alkemata-*` public WordPress MCP tools
 for site info, published post/page search, published content and guidance. It
 also exposes map topics, regions and trails, plus `search_articles`,
-`get_article`, and the protected `create_topic_at_position` tool. The original
+`get_article`, `list_map_categories`, and the protected `add_map_content` and
+`create_topic_at_position` tools. The original
 WordPress tools are called through WordPress MCP, so its tool activity remains
 recorded there. The newer article tools read the public WordPress REST API.
 WordPress remains the content source; nothing is copied into the map database.
 Private WordPress administration tools are not exposed by this gateway.
+
+### Topic categories and map editing
+
+For normal content creation, call `list_map_categories` and then
+`add_map_content(title, summary, content, category_name)`; omit `category_name`
+for a top-level topic. A category is another topic, linked by a published
+`broader_than` relationship. A topic has one active parent category per map.
+The server chooses an unused position near the parent, or near the map's
+default center for a top-level topic. It assigns visibility at zoom -4 for
+top-level topics, -2 for their children, 0 for grandchildren, then 2 and 3.5
+for deeper levels. Top-level category labels are visible on the map. The
+older `create_topic_at_position` tool remains available for precise manual
+placement.
+
+Editor/administrator MCP creations publish immediately by default; contributor
+creations remain drafts until an editor publishes them. A draft never appears
+in the public map viewport. The result includes `status`, `published`,
+`placement`, and `visible_from_zoom` so clients can explain where to look.
+The map refreshes when moved, focused, or after 30 seconds while visible.
+
+Only administrators can switch on Edit map in the browser. In edit mode,
+drag a circle to move it, or open a topic to change its category or archive it.
+Changing a category repositions the topic and recalculates visibility for its
+descendants. A category with children cannot be archived until its children
+are moved or removed. Server endpoints enforce administrator role and CSRF,
+not just the browser switch.
 
 create_topic_at_position accepts a title, summary, paragraph content, map ID,
 x/y position, min_zoom, max_zoom, label priority, optional region, language and

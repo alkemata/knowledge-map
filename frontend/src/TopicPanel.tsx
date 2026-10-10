@@ -1,12 +1,24 @@
 import { useEffect,useState } from "react";
 import katex from "katex";
 import "katex/dist/katex.min.css";
-import { getTopic } from "./api";
-import type { ContentBlock,Topic } from "./types";
+import { changeCategory,deleteTopic,getCategories,getTopic,getTopicPlacements } from "./api";
+import type { MapCategory } from "./api";
+import type { ContentBlock,Placement,Topic } from "./types";
 
-export function TopicPanel({topicId,onClose}:{topicId:string;onClose:()=>void}){
+export function TopicPanel({topicId,mapId,editMode,refreshKey,csrfToken,onChanged,onClose}:{topicId:string;mapId:string;editMode:boolean;refreshKey:number;csrfToken:string|null;onChanged:()=>void;onClose:()=>void}){
   const [topic,setTopic]=useState<Topic|null>(null),[error,setError]=useState("");
-  useEffect(()=>{const c=new AbortController();setTopic(null);getTopic(topicId,c.signal).then(setTopic).catch(e=>e.name!=="AbortError"&&setError(e.message));return()=>c.abort()},[topicId]);
+  const [categories,setCategories]=useState<MapCategory[]>([]),[placement,setPlacement]=useState<Placement|null>(null),[category,setCategory]=useState(""),[busy,setBusy]=useState(false);
+  useEffect(()=>{const c=new AbortController();setTopic(null);setError("");getTopic(topicId,c.signal).then(setTopic).catch(e=>e.name!=="AbortError"&&setError(e.message));return()=>c.abort()},[topicId]);
+  useEffect(()=>{if(!editMode)return;Promise.all([getCategories(mapId),getTopicPlacements(topicId)]).then(([items,placements])=>{
+    setCategories(items);setPlacement(placements.find(item=>item.map_id===mapId)??null);
+    setCategory(items.find(item=>item.id===topicId)?.parent_topic_id??"");
+  }).catch(e=>setError(e.message))},[editMode,mapId,topicId,refreshKey]);
+  async function saveCategory(){if(!csrfToken||!placement)return;setBusy(true);setError("");try{
+    const result=await changeCategory(topicId,category||null,placement.version,csrfToken);
+    setPlacement(result.placement);setCategories(items=>items.map(item=>item.id===topicId?{...item,parent_topic_id:category||null}:item));onChanged();
+  }catch(e){setError((e as Error).message)}finally{setBusy(false)}}
+  async function removeTopic(){if(!csrfToken||!window.confirm(`Delete “${topic?.title??"this topic"}” from the map? This archives it and its links.`))return;
+    setBusy(true);setError("");try{await deleteTopic(topicId,csrfToken);onChanged();onClose()}catch(e){setError((e as Error).message)}finally{setBusy(false)}}
   return <aside className="topic-panel" aria-label="Topic details" aria-live="polite">
     <button className="close-button" onClick={onClose} aria-label="Close topic panel">×</button>
     {error&&<p role="alert">{error}</p>}{!topic&&!error&&<p className="loading">Opening topic…</p>}
@@ -14,6 +26,10 @@ export function TopicPanel({topicId,onClose}:{topicId:string;onClose:()=>void}){
       <p className="meta">Published revision {topic.version} · Updated {new Date(topic.updated_at).toLocaleDateString()}</p>
       <div className="content-blocks">{topic.content.blocks.map(b=><Block key={b.id} block={b}/>)}</div>
       <div className="topic-actions"><a href={topic.canonical_url}>Permanent topic page</a><button onClick={()=>navigator.clipboard.writeText(location.href)}>Copy current view</button></div>
+      {editMode&&csrfToken&&placement&&<div className="topic-editor"><h2>Edit map topic</h2><p>Drag its circle to move it. A category places it nearby and controls when it appears as you zoom in.</p>
+        <label>Category<select value={category} onChange={event=>setCategory(event.target.value)} disabled={busy}><option value="">Top level (map center)</option>{categories.filter(item=>item.id!==topicId).map(item=><option key={item.id} value={item.id}>{"— ".repeat(item.depth)}{item.title}</option>)}</select></label>
+        <div className="topic-editor-actions"><button disabled={busy||category===(categories.find(item=>item.id===topicId)?.parent_topic_id??"")} onClick={saveCategory}>Save category</button><button className="danger" disabled={busy} onClick={removeTopic}>Delete topic</button></div>
+      </div>}
     </article>}
   </aside>
 }

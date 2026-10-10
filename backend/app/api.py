@@ -30,13 +30,19 @@ from .schemas import (
     TerrainFeatureInput, TopicCreate, TopicRevisionCreate, TrailCreate,
 )
 from .services import (
-    create_revision, create_topic, create_trail, placement_json, publish_revision,
+    category_depth, category_parents, create_revision, create_topic, create_trail,
+    depth_min_zoom, placement_json, publish_revision, suggest_position,
     region_json, revision_json, search_topics, topic_json, validate_placement_context, viewport,
 )
 from .wordpress_statistics import get_wordpress_statistics
 
 settings = get_settings()
 router = APIRouter(prefix="/api/v1")
+
+
+class CategoryChange(BaseModel):
+    category_topic_id: uuid.UUID | None = None
+    base_version: int = Field(ge=1)
 
 
 class MapUsageInput(BaseModel):
@@ -248,6 +254,23 @@ def map_regions(map_id: uuid.UUID, db: Session = Depends(get_db)) -> list[dict[s
     ).order_by(Region.title))]
 
 
+@router.get("/maps/{map_id}/categories")
+def map_categories(map_id: uuid.UUID, db: Session = Depends(get_db)) -> list[dict[str, Any]]:
+    if not db.get(KnowledgeMap, map_id):
+        fail(404, "map_not_found", "Map not found")
+    parents = category_parents(db, map_id)
+    rows = db.execute(select(Topic, TopicRevision).join(
+        TopicRevision, Topic.published_revision_id == TopicRevision.id,
+    ).join(Placement, Placement.topic_id == Topic.id).where(
+        Placement.map_id == map_id, Placement.status == ContentStatus.published,
+        Placement.archived_at.is_(None), Topic.status == ContentStatus.published,
+        Topic.archived_at.is_(None),
+    ).order_by(TopicRevision.title)).unique()
+    return [{"id": str(topic.id), "title": revision.title,
+             "parent_topic_id": str(parents[topic.id]) if topic.id in parents else None,
+             "depth": category_depth(topic.id, parents)} for topic, revision in rows]
+
+
 @router.get("/maps/{map_id}/viewport")
 def map_viewport(
     map_id: uuid.UUID, min_x: float, min_y: float, max_x: float, max_y: float,
@@ -442,15 +465,18 @@ def post_placement(data: PlacementInput, topic_id: uuid.UUID, request: Request, 
 
 
 @router.patch("/placements/{placement_id}")
-def move_placement(placement_id: uuid.UUID, data: PlacementPatch, request: Request, actor: User = Depends(require_role(Role.editor)), db: Session = Depends(get_db)) -> dict[str, Any]:
+def move_placement(placement_id: uuid.UUID, data: PlacementPatch, request: Request, actor: User = Depends(verify_csrf), db: Session = Depends(get_db)) -> dict[str, Any]:
+    if actor.role != Role.administrator:
+        fail(403, "forbidden", "Administrator role required")
     item = db.get(Placement, placement_id)
     if not item or item.archived_at:
         fail(404, "placement_not_found", "Placement not found")
     if item.version != data.base_version:
         fail(409, "version_conflict", "Placement changed", {"current_version": item.version, "x": item.x, "y": item.y})
-    region = db.get(Region, item.region_id) if item.region_id else None
-    if region and not (region.min_x <= data.x <= region.max_x and region.min_y <= data.y <= region.max_y):
-        fail(422, "outside_region", "Position is outside region bounds")
+    validate_placement_context(db, PlacementInput(
+        map_id=item.map_id, region_id=item.region_id, x=data.x, y=data.y,
+        icon=item.icon, min_zoom=item.min_zoom, max_zoom=item.max_zoom,
+    ))
     db.add(EntityRevision(
         entity_type="placement", entity_id=item.id, version=item.version,
         snapshot=placement_json(item), created_by=actor.id,
@@ -462,7 +488,9 @@ def move_placement(placement_id: uuid.UUID, data: PlacementPatch, request: Reque
 
 
 @router.delete("/placements/{placement_id}")
-def archive_placement(placement_id: uuid.UUID, request: Request, actor: User = Depends(require_role(Role.editor)), db: Session = Depends(get_db)) -> dict[str, Any]:
+def archive_placement(placement_id: uuid.UUID, request: Request, actor: User = Depends(verify_csrf), db: Session = Depends(get_db)) -> dict[str, Any]:
+    if actor.role != Role.administrator:
+        fail(403, "forbidden", "Administrator role required")
     item = db.get(Placement, placement_id)
     if not item:
         fail(404, "placement_not_found", "Placement not found")
@@ -472,6 +500,117 @@ def archive_placement(placement_id: uuid.UUID, request: Request, actor: User = D
     audit(db, request, actor, "placement.archive", "placement", item.id)
     db.commit()
     return {"id": str(item.id), "status": "archived", "version": item.version}
+
+
+@router.patch("/topics/{topic_id}/category")
+def change_topic_category(topic_id: uuid.UUID, data: CategoryChange, request: Request,
+                          actor: User = Depends(verify_csrf), db: Session = Depends(get_db)) -> dict[str, Any]:
+    if actor.role != Role.administrator:
+        fail(403, "forbidden", "Administrator role required")
+    topic = db.get(Topic, topic_id)
+    placement = db.scalar(select(Placement).where(
+        Placement.topic_id == topic_id, Placement.status == ContentStatus.published,
+        Placement.archived_at.is_(None),
+    ))
+    if not topic or topic.status != ContentStatus.published or topic.archived_at or not placement:
+        fail(404, "topic_not_found", "Published map topic not found")
+    if placement.version != data.base_version:
+        fail(409, "version_conflict", "Topic placement changed", {"current_version": placement.version})
+    parent = None
+    if data.category_topic_id:
+        if data.category_topic_id == topic_id:
+            fail(422, "category_cycle", "A topic cannot be its own category")
+        parent = db.scalar(select(Placement).join(Topic, Placement.topic_id == Topic.id).where(
+            Placement.topic_id == data.category_topic_id, Placement.map_id == placement.map_id,
+            Placement.status == ContentStatus.published, Placement.archived_at.is_(None),
+            Topic.status == ContentStatus.published, Topic.archived_at.is_(None),
+        ))
+        if not parent:
+            fail(422, "invalid_category", "Category must be a published topic on this map")
+    parents = category_parents(db, placement.map_id)
+    if parent:
+        walk = parent.topic_id
+        while walk in parents:
+            if walk == topic_id:
+                fail(422, "category_cycle", "Category cannot be a descendant of this topic")
+            walk = parents[walk]
+        if walk == topic_id:
+            fail(422, "category_cycle", "Category cannot be a descendant of this topic")
+    old_links = list(db.scalars(select(Relationship).where(
+        Relationship.target_topic_id == topic_id, Relationship.kind == "broader_than",
+        Relationship.status == ContentStatus.published, Relationship.archived_at.is_(None),
+    )))
+    now = datetime.now(timezone.utc)
+    for link in old_links:
+        link.status = ContentStatus.archived
+        link.archived_at = now
+        link.version += 1
+    if parent:
+        link = db.scalar(select(Relationship).where(
+            Relationship.source_topic_id == parent.topic_id,
+            Relationship.target_topic_id == topic_id, Relationship.kind == "broader_than",
+        ))
+        if link:
+            link.status, link.archived_at, link.version = ContentStatus.published, None, link.version + 1
+        else:
+            db.add(Relationship(source_topic_id=parent.topic_id, target_topic_id=topic_id,
+                                kind="broader_than", explanation="Category parent",
+                                status=ContentStatus.published, created_by=actor.id))
+    parents.pop(topic_id, None)
+    if parent:
+        parents[topic_id] = parent.topic_id
+    knowledge_map = db.get(KnowledgeMap, placement.map_id)
+    x, y = suggest_position(db, knowledge_map, parent)
+    placement.x, placement.y, placement.region_id = x, y, None
+    placement.version += 1
+    descendants = [topic_id]
+    for candidate in parents:
+        walk = candidate
+        while walk in parents:
+            walk = parents[walk]
+            if walk == topic_id:
+                descendants.append(candidate)
+                break
+    for item in db.scalars(select(Placement).where(
+        Placement.map_id == placement.map_id, Placement.topic_id.in_(descendants),
+        Placement.status == ContentStatus.published, Placement.archived_at.is_(None),
+    )):
+        item.min_zoom = depth_min_zoom(category_depth(item.topic_id, parents))
+        if item.id != placement.id:
+            item.version += 1
+    audit(db, request, actor, "topic.category.change", "topic", topic_id)
+    db.commit()
+    return {"topic_id": str(topic_id), "category_topic_id": str(parent.topic_id) if parent else None,
+            "placement": placement_json(placement)}
+
+
+@router.delete("/topics/{topic_id}")
+def archive_topic(topic_id: uuid.UUID, request: Request,
+                  actor: User = Depends(verify_csrf), db: Session = Depends(get_db)) -> dict[str, Any]:
+    if actor.role != Role.administrator:
+        fail(403, "forbidden", "Administrator role required")
+    topic = db.get(Topic, topic_id)
+    if not topic or topic.archived_at:
+        fail(404, "topic_not_found", "Topic not found")
+    children = list(db.scalars(select(Relationship.target_topic_id).where(
+        Relationship.source_topic_id == topic_id, Relationship.kind == "broader_than",
+        Relationship.status == ContentStatus.published, Relationship.archived_at.is_(None),
+    )))
+    if children:
+        fail(409, "category_has_children", "Move or delete child topics before deleting this category")
+    now = datetime.now(timezone.utc)
+    topic.status, topic.archived_at = ContentStatus.archived, now
+    for placement in db.scalars(select(Placement).where(Placement.topic_id == topic_id,
+                                                       Placement.archived_at.is_(None))):
+        placement.status, placement.archived_at, placement.version = ContentStatus.archived, now, placement.version + 1
+    for link in db.scalars(select(Relationship).where(
+        ((Relationship.source_topic_id == topic_id) | (Relationship.target_topic_id == topic_id)),
+        Relationship.archived_at.is_(None),
+    )):
+        link.status, link.archived_at, link.version = ContentStatus.archived, now, link.version + 1
+    audit(db, request, actor, "topic.archive", "topic", topic_id)
+    db.commit()
+    return {"id": str(topic_id), "status": "archived"}
 
 
 @router.post("/relationships", status_code=201)

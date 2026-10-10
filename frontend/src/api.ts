@@ -1,4 +1,4 @@
-import type { KnowledgeMap, Topic, TopicSummary, Trail, Viewport } from "./types";
+import type { KnowledgeMap, Placement, Topic, TopicSummary, Trail, Viewport } from "./types";
 
 async function request<T>(path: string, signal?: AbortSignal): Promise<T> {
   const response = await fetch(path, { signal, credentials: "same-origin" });
@@ -35,6 +35,42 @@ export function getViewport(
 
 export function getTopic(id: string, signal?: AbortSignal): Promise<Topic> {
   return request(`/api/v1/topics/${id}`, signal);
+}
+
+export type MapCategory = { id: string; title: string; parent_topic_id: string | null; depth: number };
+
+export function getCategories(mapId: string): Promise<MapCategory[]> {
+  return request(`/api/v1/maps/${mapId}/categories`);
+}
+
+export function getTopicPlacements(topicId: string): Promise<Placement[]> {
+  return request(`/api/v1/topics/${topicId}/placements`);
+}
+
+async function mutate<T>(path: string, method: string, csrfToken: string, data?: unknown): Promise<T> {
+  const response = await fetch(path, {
+    method, credentials: "same-origin",
+    headers: { "X-CSRF-Token": csrfToken, ...(data === undefined ? {} : { "Content-Type": "application/json" }) },
+    ...(data === undefined ? {} : { body: JSON.stringify(data) }),
+  });
+  if (!response.ok) {
+    const payload = await response.json().catch(() => ({}));
+    throw new Error(payload.detail?.message ?? payload.message ?? `Request failed (${response.status})`);
+  }
+  return response.json() as Promise<T>;
+}
+
+export function movePlacement(item: Placement, x: number, y: number, csrfToken: string): Promise<Placement> {
+  return mutate(`/api/v1/placements/${item.id}`, "PATCH", csrfToken, { base_version: item.version, x, y });
+}
+
+export function changeCategory(topicId: string, categoryTopicId: string | null, baseVersion: number, csrfToken: string): Promise<{ placement: Placement }> {
+  return mutate(`/api/v1/topics/${topicId}/category`, "PATCH", csrfToken,
+    { category_topic_id: categoryTopicId, base_version: baseVersion });
+}
+
+export function deleteTopic(topicId: string, csrfToken: string): Promise<{ status: string }> {
+  return mutate(`/api/v1/topics/${topicId}`, "DELETE", csrfToken);
 }
 
 export function searchTopics(query: string, signal?: AbortSignal): Promise<{ items: TopicSummary[] }> {

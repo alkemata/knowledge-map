@@ -1,4 +1,5 @@
 import re
+import math
 import uuid
 from datetime import datetime, timezone
 from typing import Any
@@ -107,7 +108,65 @@ def validate_placement_context(db: Session, data: PlacementInput) -> Region | No
     return None
 
 
-def create_topic(db: Session, data: TopicCreate, actor: User, publish: bool = False) -> Topic:
+def category_parents(db: Session, map_id: uuid.UUID) -> dict[uuid.UUID, uuid.UUID]:
+    """Use published broader-than links as the map's single-parent category tree."""
+    placed = set(db.scalars(select(Placement.topic_id).where(
+        Placement.map_id == map_id, Placement.archived_at.is_(None),
+        Placement.status == ContentStatus.published,
+    )))
+    parents: dict[uuid.UUID, uuid.UUID] = {}
+    links = db.scalars(select(Relationship).where(
+        Relationship.kind == "broader_than", Relationship.status == ContentStatus.published,
+        Relationship.archived_at.is_(None),
+    ).order_by(Relationship.id))
+    for link in links:
+        if link.source_topic_id in placed and link.target_topic_id in placed:
+            parents.setdefault(link.target_topic_id, link.source_topic_id)
+    return parents
+
+
+def category_depth(topic_id: uuid.UUID, parents: dict[uuid.UUID, uuid.UUID]) -> int:
+    seen = {topic_id}
+    depth = 0
+    while topic_id in parents:
+        topic_id = parents[topic_id]
+        if topic_id in seen:
+            raise ValueError("Category links contain a cycle")
+        seen.add(topic_id)
+        depth += 1
+    return depth
+
+
+def depth_min_zoom(depth: int) -> float:
+    # Overview -> district -> detail. The configured frontend maximum is 4.
+    return min(3.5, -4 + 2 * depth)
+
+
+def suggest_position(db: Session, knowledge_map: KnowledgeMap, parent: Placement | None) -> tuple[float, float]:
+    center = (parent.x, parent.y) if parent else (
+        float(knowledge_map.default_camera["x"]), float(knowledge_map.default_camera["y"]),
+    )
+    bounds = knowledge_map.world_bounds
+    occupied = [(p.x, p.y) for p in db.scalars(select(Placement).where(
+        Placement.map_id == knowledge_map.id, Placement.archived_at.is_(None),
+        Placement.status == ContentStatus.published,
+    ))]
+    spacing = 180 if parent else 420
+    for ring in range(1, 24):
+        radius = spacing * ring
+        count = max(12, ring * 12)
+        for index in range(count):
+            angle = 2 * math.pi * index / count
+            x = center[0] + radius * math.cos(angle)
+            y = center[1] + radius * math.sin(angle)
+            if bounds and not (bounds["min_x"] <= x <= bounds["max_x"] and bounds["min_y"] <= y <= bounds["max_y"]):
+                continue
+            if all(math.hypot(x - px, y - py) >= spacing * 0.8 for px, py in occupied):
+                return x, y
+    raise ValueError("No free position is available near this category")
+
+
+def create_topic(db: Session, data: TopicCreate, actor: User, publish: bool = False, commit: bool = True) -> Topic:
     if data.placement:
         validate_placement_context(db, data.placement)
     topic = Topic(slug=slugify(data.title), created_by=actor.id)
@@ -132,7 +191,10 @@ def create_topic(db: Session, data: TopicCreate, actor: User, publish: bool = Fa
             label_priority=p.label_priority,
             status=ContentStatus.published if publish else ContentStatus.draft,
         ))
-    db.commit()
+    if commit:
+        db.commit()
+    else:
+        db.flush()
     return topic
 
 
@@ -167,6 +229,10 @@ def publish_revision(db: Session, topic: Topic, revision: TopicRevision, reviewe
     db.query(Placement).filter(Placement.topic_id == topic.id, Placement.status != ContentStatus.archived).update(
         {Placement.status: ContentStatus.published}
     )
+    db.query(Relationship).filter(
+        Relationship.target_topic_id == topic.id, Relationship.kind == "broader_than",
+        Relationship.status == ContentStatus.draft,
+    ).update({Relationship.status: ContentStatus.published})
     db.commit()
     return topic
 
@@ -211,13 +277,16 @@ def viewport(db: Session, map_id: uuid.UUID, bounds: tuple[float, float, float, 
         .limit(limit + 1)
     )
     rows = list(db.execute(stmt))
-    has_more = len(rows) > limit
+    parents = category_parents(db, map_id)
+    visible_rows = [(p, t, r, category_depth(t.id, parents)) for p, t, r in rows
+                    if zoom >= depth_min_zoom(category_depth(t.id, parents))]
+    has_more = len(visible_rows) > limit
     placements = [
-        placement_json(p, {
+        {**placement_json(p, {
             "id": str(t.id), "slug": t.slug, "title": r.title, "summary": r.summary,
             "canonical_url": f"{settings.public_origin}/topics/{t.id}/{t.slug}",
-        })
-        for p, t, r in rows[:limit]
+        }), "depth": depth, "category_topic_id": str(parents[t.id]) if t.id in parents else None}
+        for p, t, r, depth in visible_rows[:limit]
     ]
     regions = [region_json(r) for r in db.scalars(select(Region).where(Region.map_id == map_id, Region.status == ContentStatus.published))]
     layers = [

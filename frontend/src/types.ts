@@ -32,6 +32,8 @@ export type Placement = {
   max_zoom: number;
   label_priority: number;
   version: number;
+  depth?: number;
+  category_topic_id?: string | null;
   topic?: TopicSummary;
 };
 
