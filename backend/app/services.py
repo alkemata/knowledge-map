@@ -108,6 +108,22 @@ def validate_placement_context(db: Session, data: PlacementInput) -> Region | No
     return None
 
 
+def destination_region(regions: list[Region], current_region_id: uuid.UUID | None,
+                       x: float, y: float) -> uuid.UUID | None:
+    """Keep the current region when possible, otherwise choose the smallest containing region."""
+    containing = [region for region in regions if (
+        region.min_x <= x <= region.max_x and region.min_y <= y <= region.max_y
+    )]
+    current = next((region for region in containing if region.id == current_region_id), None)
+    if current:
+        return current.id
+    if not containing:
+        return None
+    return min(containing, key=lambda region: (
+        (region.max_x - region.min_x) * (region.max_y - region.min_y), str(region.id),
+    )).id
+
+
 def category_parents(db: Session, map_id: uuid.UUID) -> dict[uuid.UUID, uuid.UUID]:
     """Use published broader-than links as the map's single-parent category tree."""
     placed = set(db.scalars(select(Placement.topic_id).where(

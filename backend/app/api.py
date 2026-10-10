@@ -31,7 +31,7 @@ from .schemas import (
 )
 from .services import (
     category_depth, category_parents, create_revision, create_topic, create_trail,
-    depth_min_zoom, placement_json, publish_revision, suggest_position,
+    depth_min_zoom, destination_region, placement_json, publish_revision, suggest_position,
     region_json, revision_json, search_topics, topic_json, validate_placement_context, viewport,
 )
 from .wordpress_statistics import get_wordpress_statistics
@@ -474,14 +474,17 @@ def move_placement(placement_id: uuid.UUID, data: PlacementPatch, request: Reque
     if item.version != data.base_version:
         fail(409, "version_conflict", "Placement changed", {"current_version": item.version, "x": item.x, "y": item.y})
     validate_placement_context(db, PlacementInput(
-        map_id=item.map_id, region_id=item.region_id, x=data.x, y=data.y,
+        map_id=item.map_id, region_id=None, x=data.x, y=data.y,
         icon=item.icon, min_zoom=item.min_zoom, max_zoom=item.max_zoom,
     ))
+    target_region_id = destination_region(list(db.scalars(select(Region).where(
+        Region.map_id == item.map_id, Region.status == ContentStatus.published,
+    ))), item.region_id, data.x, data.y)
     db.add(EntityRevision(
         entity_type="placement", entity_id=item.id, version=item.version,
         snapshot=placement_json(item), created_by=actor.id,
     ))
-    item.x, item.y, item.version = data.x, data.y, item.version + 1
+    item.x, item.y, item.region_id, item.version = data.x, data.y, target_region_id, item.version + 1
     audit(db, request, actor, "placement.move", "placement", item.id)
     db.commit()
     return placement_json(item)

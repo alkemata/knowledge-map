@@ -23,7 +23,7 @@ export default function App(){
   const close=useCallback(()=>{if(!active)return;history.pushState({},"",`/map/${active.id}`);setRoute({topicId:null,placementId:null})},[active]);
   const move=useCallback((placement:Placement,x:number,y:number)=>{
     if(!identity.authenticated||identity.role!=="administrator"||!identity.csrf_token)return;
-    movePlacement(placement,x,y,identity.csrf_token).then(refreshMap).catch(e=>{setError(e.message);refreshMap()});
+    movePlacement(placement,x,y,identity.csrf_token).then(()=>{setError("");refreshMap()}).catch(e=>{setError(e.message);refreshMap()});
   },[identity,refreshMap]);
   return <div className="app-shell">
     <header className="site-header"><a className="brand" href="/" aria-label="Alkemata Knowledge Map home"><span className="brand-mark">A</span><span><strong>Alkemata</strong><small>{active?.title??"Knowledge Map"}</small></span></a>

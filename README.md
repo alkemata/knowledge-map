@@ -104,7 +104,10 @@ in the public map viewport. The result includes `status`, `published`,
 The map refreshes when moved, focused, or after 30 seconds while visible.
 
 Only administrators can switch on Edit map in the browser. In edit mode,
-drag a circle to move it, or open a topic to change its category or archive it.
+drag a circle anywhere within the map bounds to move it, or open a topic to
+change its category or archive it. Dragging across legacy region boundaries
+updates the topic's region automatically. Every visible circle has a label;
+deeper topics and their labels appear as the map is zoomed in.
 Changing a category repositions the topic and recalculates visibility for its
 descendants. A category with children cannot be archived until its children
 are moved or removed. Server endpoints enforce administrator role and CSRF,
